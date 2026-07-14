@@ -1,0 +1,1 @@
+{"label":"trivia","confidence":0.8,"reason":"first"} {"label":"vandalism","confidence":0.9,"reason":"second"}

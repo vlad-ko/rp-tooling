@@ -1,0 +1,1 @@
+{"label":"spam","confidence":0.9,"reason":"Looks like promotional link insertion."}
