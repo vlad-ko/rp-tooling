@@ -1,0 +1,72 @@
+# Wikimedia recent-changes (SSE) -> filter/project -> Redpanda `wiki.edits.filtered`.
+# Plumbing only: filter + projection. All reasoning lives in service/ (CLAUDE.md).
+
+input:
+  http_client:
+    url: https://stream.wikimedia.org/v2/stream/recentchange
+    verb: GET
+    headers:
+      # Wikimedia rejects anonymous clients with 403 — UA is mandatory.
+      User-Agent: rp-tooling/0.1 (https://github.com/vlad-ko/rp-tooling)
+      Accept: text/event-stream
+    timeout: 30s
+    retries: 3
+    retry_period: 2s
+    stream:
+      enabled: true
+      reconnect: true
+      scanner:
+        lines:
+          # Recentchange events are small (~1-2 KB) but comments/URLs can spike;
+          # a roomy buffer avoids scanner errors forcing reconnects.
+          max_buffer_size: 1000000
+
+pipeline:
+  processors:
+    # Stage 1 — SSE framing. Only `data: <json>` lines carry events; everything
+    # else (`event:`, `id:`, `:ok` heartbeats, blank lines) is deleted. A data
+    # line that is not valid JSON is deleted too — parse_json() would otherwise
+    # error and the raw string would pass through (Bloblang fails OPEN).
+    - mapping: |
+        root = if content().string().has_prefix("data: ") {
+          content().string().trim_prefix("data: ").parse_json().catch(deleted())
+        } else {
+          deleted()
+        }
+
+    # Stage 2 — filter + projection, root built exactly once. Every condition is
+    # wrapped in .or(<rejecting default>) so a missing field or wrong type can
+    # never error the mapping and leak an unfiltered message downstream.
+    - mapping: |
+        root = if this.type().or("") != "object" ||
+            this.type.or("") != "edit" ||
+            this.bot.or(true) != false ||
+            this.namespace.or(-1) != 0 ||
+            this.meta.domain.or("") != "en.wikipedia.org" ||
+            (this.length.new.or(0) - this.length.old.or(0)).abs() < ${FILTER_MIN_DELTA:25} {
+          deleted()
+        } else {
+          {
+            "rc_id":      this.id,
+            "title":      this.title,
+            "title_url":  this.title_url,
+            "comment":    this.comment.or(""),
+            "user":       this.user,
+            "bot":        this.bot,
+            "minor":      this.minor,
+            "length_old": this.length.old.catch(null),
+            "length_new": this.length.new.catch(null),
+            "rev_old":    this.revision.old.catch(null),
+            "rev_new":    this.revision.new.catch(null),
+            "server_url": this.server_url,
+            "notify_url": this.notify_url,
+            "domain":     this.meta.domain,
+            "event_time": this.meta.dt
+          }
+        }
+
+output:
+  kafka_franz:
+    seed_brokers: ["${REDPANDA_BROKERS:redpanda:9092}"]
+    topic: wiki.edits.filtered
+    key: ${! json("title") }
