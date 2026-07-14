@@ -1,0 +1,3 @@
+```
+{"label":"trivia","confidence":0.7,"reason":"Fixed a spelling mistake."}
+```
