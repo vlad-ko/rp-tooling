@@ -70,3 +70,7 @@ output:
     seed_brokers: ["${REDPANDA_BROKERS:redpanda:9092}"]
     topic: wiki.edits.filtered
     key: ${! json("title") }
+    # Pinned: unset defaults to snappy, which the downstream kafkajs consumer
+    # cannot decode (KafkaJSNotImplemented). Volume is tiny; plain payloads
+    # keep rpk/debug output readable.
+    compression: none
