@@ -1,6 +1,6 @@
 import { Kafka, logLevel } from 'kafkajs';
 import { loadConfig } from './config.js';
-import { startConsumer } from './consumer.js';
+import { startConsumer, wireCrashExit } from './consumer.js';
 import { createDb } from './db.js';
 import { createDiffFetcher } from './enrich.js';
 import { createOllamaClient } from './ollama.js';
@@ -20,6 +20,7 @@ async function main(): Promise<void> {
   const kafka = new Kafka({ clientId: 'triage-service', brokers: cfg.brokers, logLevel: logLevel.WARN });
   const producer = kafka.producer();
   const consumer = kafka.consumer({ groupId: cfg.groupId });
+  wireCrashExit(consumer);
   await producer.connect();
   await consumer.connect();
 
@@ -51,6 +52,11 @@ async function main(): Promise<void> {
   });
   console.log(`[service] consuming ${cfg.topicFiltered} as group ${cfg.groupId}`);
 }
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[service] unhandled promise rejection; exiting for container restart', reason);
+  process.exit(1);
+});
 
 main().catch((err) => {
   console.error('[service] fatal startup error', err);

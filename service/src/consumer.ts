@@ -20,6 +20,26 @@ export interface ConsumerDeps {
   isDbReady: () => Promise<boolean>;
 }
 
+// kafkajs emits consumer.crash and stops consuming on a non-retriable error
+// (payload.restart === false) — the process would otherwise stay alive as a
+// zombie. Exit non-zero so the container restart policy takes over.
+export function wireCrashExit(
+  consumer: Consumer,
+  exit: (code: number) => void = (code) => process.exit(code),
+): void {
+  consumer.on(consumer.events.CRASH, (event) => {
+    const { error, groupId, restart } = event.payload;
+    if (restart) {
+      console.warn(`[consumer] crash in group ${groupId}; kafkajs will restart: ${String(error)}`);
+      return;
+    }
+    console.error(
+      `[consumer] non-retriable crash in group ${groupId}; exiting for container restart: ${String(error)}`,
+    );
+    exit(1);
+  });
+}
+
 export function toClassifiedMessage(row: EditRow): ClassifiedMessage {
   return {
     rc_id: row.rc_id,
