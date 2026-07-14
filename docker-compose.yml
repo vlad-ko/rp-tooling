@@ -1,0 +1,103 @@
+# rp-tooling — local streaming triage stack (issue #2: infra skeleton).
+# `docker compose up` must bring up everything with no .env file present;
+# every knob below has a default via ${VAR:-default}. See .env.example.
+
+name: rp-tooling
+
+services:
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:latest
+    command:
+      - redpanda
+      - start
+      - --mode=dev-container
+      - --smp=1
+      # Internal listener is what everything on the compose network uses
+      # (redpanda:9092); the external listener exists only for host debugging.
+      - --kafka-addr=internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr=internal://redpanda:9092,external://localhost:${REDPANDA_KAFKA_PORT:-19092}
+    ports:
+      - "${REDPANDA_KAFKA_PORT:-19092}:19092" # host debugging: rpk -X brokers=localhost:19092
+    volumes:
+      - redpanda-data:/var/lib/redpanda/data
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -E 'Healthy:.+true' || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+
+  # One-shot: creates the two pipeline topics, then exits 0. Tolerates
+  # already-existing topics (create fails -> describe must succeed).
+  topic-init:
+    image: docker.redpanda.com/redpandadata/redpanda:latest
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    restart: "no"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        for t in wiki.edits.filtered wiki.edits.classified; do
+          rpk topic create "$$t" --partitions 1 -X brokers=redpanda:9092 \
+            || rpk topic describe "$$t" -X brokers=redpanda:9092 >/dev/null
+        done
+        echo "topics ready"
+
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-rp}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-rp}
+      POSTGRES_DB: ${POSTGRES_DB:-wiki}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - ./sql:/docker-entrypoint-initdb.d:ro # schema.sql auto-applied on first boot
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  ollama:
+    image: ollama/ollama
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434" # host debugging: curl localhost:11434/api/tags
+    volumes:
+      - ollama-models:/root/.ollama # pulled models survive restarts — no re-pull
+    healthcheck:
+      # The image has no curl/wget; `ollama list` talks to the local server.
+      test: ["CMD", "ollama", "list"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  # One-shot: pulls the classification model into the ollama volume, exits 0.
+  # A no-op on restart when the model is already present.
+  ollama-init:
+    image: ollama/ollama
+    depends_on:
+      ollama:
+        condition: service_healthy
+    restart: "no"
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["/bin/sh", "-c", "ollama pull ${OLLAMA_MODEL:-llama3.2:3b}"]
+
+  # ---------------------------------------------------------------------------
+  # PLACEHOLDERS — owned by other issues; do not add here in this PR.
+  #
+  #   connect:   Redpanda Connect pipeline (filter/project wiki firehose) — issue #3
+  #   service:   TypeScript reasoning worker (LLM classification)        — issue #4
+  #   web:       read-only API + HTML page over Postgres                 — issue #5
+  # ---------------------------------------------------------------------------
+
+volumes:
+  redpanda-data:
+  postgres-data:
+  ollama-models:
