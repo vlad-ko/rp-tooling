@@ -1,0 +1,46 @@
+export interface Config {
+  brokers: string[];
+  topicFiltered: string;
+  topicClassified: string;
+  groupId: string;
+  ollamaUrl: string;
+  ollamaModel: string;
+  ollamaRetries: number;
+  ollamaStartupTimeoutMs: number;
+  confidenceThreshold: number;
+  diffMaxChars: number;
+  heuristicTinyDelta: number;
+  compareTimeoutMs: number;
+  maxErrorSnippet: number;
+  databaseUrl: string;
+}
+
+type Env = Record<string, string | undefined>;
+
+function numberOr(raw: string | undefined, fallback: number): number {
+  if (raw === undefined || raw.trim() === '') return fallback;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+export function loadConfig(env: Env = process.env): Readonly<Config> {
+  return Object.freeze({
+    brokers: (env['REDPANDA_BROKERS'] ?? 'redpanda:9092')
+      .split(',')
+      .map((b) => b.trim())
+      .filter((b) => b !== ''),
+    topicFiltered: env['TOPIC_FILTERED'] ?? 'wiki.edits.filtered',
+    topicClassified: env['TOPIC_CLASSIFIED'] ?? 'wiki.edits.classified',
+    groupId: env['GROUP_ID'] ?? 'triage',
+    ollamaUrl: env['OLLAMA_URL'] ?? 'http://ollama:11434',
+    ollamaModel: env['OLLAMA_MODEL'] ?? 'llama3.2:3b',
+    ollamaRetries: numberOr(env['OLLAMA_RETRIES'], 5),
+    ollamaStartupTimeoutMs: numberOr(env['OLLAMA_STARTUP_TIMEOUT_MS'], 180_000),
+    confidenceThreshold: numberOr(env['CONFIDENCE_THRESHOLD'], 0.6),
+    diffMaxChars: numberOr(env['DIFF_MAX_CHARS'], 4000),
+    heuristicTinyDelta: numberOr(env['HEURISTIC_TINY_DELTA'], 5),
+    compareTimeoutMs: numberOr(env['COMPARE_TIMEOUT_MS'], 5000),
+    maxErrorSnippet: numberOr(env['MAX_ERROR_SNIPPET'], 500),
+    databaseUrl: env['DATABASE_URL'] ?? 'postgres://postgres:postgres@postgres:5432/triage',
+  });
+}
