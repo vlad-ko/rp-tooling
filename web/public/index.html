@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>wiki edit triage</title>
+<style>
+  :root {
+    --page: #f9f9f7;
+    --surface: #fcfcfb;
+    --text: #0b0b0b;
+    --secondary: #52514e;
+    --hairline: #e1e0d9;
+    --vandalism: #e34948;
+    --substantive: #2a78d6;
+    --trivia: #898781;
+    --unclear: #eda100;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --page: #0d0d0d;
+      --surface: #1a1a19;
+      --text: #ffffff;
+      --secondary: #c3c2b7;
+      --hairline: #2c2c2a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--page);
+    color: var(--text);
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 1100px; margin: 0 auto; padding: 24px 20px 48px; }
+  header h1 { margin: 0 0 12px; font-size: 20px; font-weight: 650; }
+
+  #stats {
+    display: flex; flex-wrap: wrap; gap: 8px 20px;
+    padding: 10px 14px; margin-bottom: 16px;
+    background: var(--surface);
+    border: 1px solid var(--hairline); border-radius: 8px;
+    color: var(--secondary); font-size: 13px;
+  }
+  #stats b { color: var(--text); font-variant-numeric: tabular-nums; }
+
+  #filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+  #filters button {
+    font: inherit; font-size: 13px; cursor: pointer;
+    color: var(--secondary);
+    background: var(--surface);
+    border: 1px solid var(--hairline); border-radius: 999px;
+    padding: 5px 14px;
+  }
+  #filters button.active {
+    color: var(--page);
+    background: var(--text);
+    border-color: var(--text);
+  }
+
+  .table-wrap {
+    overflow-x: auto;
+    background: var(--surface);
+    border: 1px solid var(--hairline); border-radius: 8px;
+  }
+  table { border-collapse: collapse; width: 100%; min-width: 860px; }
+  th, td {
+    text-align: left; padding: 8px 12px;
+    border-bottom: 1px solid var(--hairline);
+    white-space: nowrap;
+  }
+  tr:last-child td { border-bottom: none; }
+  th {
+    font-size: 12px; font-weight: 600; color: var(--secondary);
+    text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  td.num { font-variant-numeric: tabular-nums; }
+  td.reason {
+    max-width: 280px; overflow: hidden; text-overflow: ellipsis;
+    color: var(--secondary);
+  }
+  td.time, td.pass, td.editor { color: var(--secondary); }
+  .dot {
+    display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+    margin-right: 6px; vertical-align: baseline;
+  }
+  a { color: var(--substantive); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  #empty { padding: 24px; text-align: center; color: var(--secondary); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>wiki edit triage</h1>
+    <div id="stats">loading…</div>
+  </header>
+
+  <div id="filters"></div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Processed</th><th>Label</th><th>Conf</th><th>Pass</th>
+          <th>Title</th><th>Editor</th><th>Δ bytes</th><th>Reason</th>
+        </tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <div id="empty" hidden>no edits yet</div>
+  </div>
+</main>
+
+<script>
+(() => {
+  "use strict";
+  const LABELS = ["vandalism", "substantive", "trivia", "unclear"];
+  const DOT_COLORS = {
+    vandalism: "#e34948",
+    substantive: "#2a78d6",
+    trivia: "#898781",
+    unclear: "#eda100",
+  };
+  let activeLabel = null; // null = All
+
+  const statsEl = document.getElementById("stats");
+  const filtersEl = document.getElementById("filters");
+  const rowsEl = document.getElementById("rows");
+  const emptyEl = document.getElementById("empty");
+
+  function el(tag, props) {
+    const node = document.createElement(tag);
+    if (props) Object.assign(node, props);
+    return node;
+  }
+
+  function dot(label) {
+    const d = el("span", { className: "dot" });
+    d.style.background = DOT_COLORS[label] || "var(--secondary)";
+    return d;
+  }
+
+  function fmtTime(iso) {
+    if (!iso) return "—";
+    const d = new Date(iso);
+    return isNaN(d) ? "—" : d.toLocaleString();
+  }
+
+  // ---- filters -------------------------------------------------------------
+  function renderFilters() {
+    filtersEl.replaceChildren();
+    for (const label of [null, ...LABELS]) {
+      const btn = el("button", {
+        type: "button",
+        className: label === activeLabel ? "active" : "",
+      });
+      if (label) btn.append(dot(label));
+      btn.append(document.createTextNode(label ?? "All"));
+      btn.addEventListener("click", () => {
+        activeLabel = label;
+        renderFilters();
+        refreshEdits();
+      });
+      filtersEl.append(btn);
+    }
+  }
+
+  // ---- stats strip ---------------------------------------------------------
+  async function refreshStats() {
+    try {
+      const res = await fetch("/api/stats");
+      if (!res.ok) return;
+      const s = await res.json();
+
+      statsEl.replaceChildren();
+      const total = el("span");
+      total.append("total ", el("b", { textContent: String(s.total) }));
+      statsEl.append(total);
+
+      for (const label of LABELS) {
+        const entry = s.labels[label];
+        const span = el("span");
+        span.append(
+          dot(label),
+          label + " ",
+          el("b", { textContent: String(entry ? entry.count : 0) }),
+        );
+        if (entry && entry.avg_confidence != null) {
+          span.append(" · avg " + Number(entry.avg_confidence).toFixed(2));
+        }
+        statsEl.append(span);
+      }
+
+      const last = el("span");
+      last.append(
+        "last processed ",
+        el("b", { textContent: fmtTime(s.last_processed_at) }),
+      );
+      statsEl.append(last);
+    } catch {
+      /* transient; next poll retries */
+    }
+  }
+
+  // ---- edits table ---------------------------------------------------------
+  // Every value below comes from Wikipedia and is untrusted: all of it goes
+  // through textContent / createTextNode, never innerHTML.
+  function renderRow(edit) {
+    const tr = el("tr");
+
+    tr.append(el("td", { className: "time", textContent: fmtTime(edit.processed_at) }));
+
+    const labelTd = el("td");
+    if (edit.label) {
+      labelTd.append(dot(edit.label), document.createTextNode(edit.label));
+    } else {
+      labelTd.textContent = "—";
+    }
+    tr.append(labelTd);
+
+    tr.append(el("td", {
+      className: "num",
+      textContent: edit.confidence == null ? "—" : Number(edit.confidence).toFixed(2),
+    }));
+    tr.append(el("td", { className: "pass", textContent: edit.pass ?? "—" }));
+
+    const titleTd = el("td");
+    if (edit.notify_url) {
+      const a = el("a", {
+        href: edit.notify_url,
+        target: "_blank",
+        rel: "noopener",
+        textContent: edit.title ?? "(untitled)",
+      });
+      titleTd.append(a);
+    } else {
+      titleTd.textContent = edit.title ?? "(untitled)";
+    }
+    tr.append(titleTd);
+
+    tr.append(el("td", { className: "editor", textContent: edit.editor ?? "—" }));
+
+    const delta = edit.byte_delta;
+    tr.append(el("td", {
+      className: "num",
+      textContent: delta == null ? "—" : (delta > 0 ? "+" + delta : String(delta)),
+    }));
+
+    const reasonTd = el("td", { className: "reason", textContent: edit.reason ?? "" });
+    if (edit.reason) reasonTd.title = edit.reason;
+    tr.append(reasonTd);
+
+    return tr;
+  }
+
+  async function refreshEdits() {
+    const requested = activeLabel;
+    try {
+      const params = new URLSearchParams();
+      if (requested) params.set("label", requested);
+      const res = await fetch("/api/edits?" + params);
+      if (!res.ok) return;
+      const body = await res.json();
+      if (requested !== activeLabel) return; // stale response, filter changed
+      rowsEl.replaceChildren(...body.edits.map(renderRow));
+      emptyEl.hidden = body.edits.length > 0;
+    } catch {
+      /* transient; next poll retries */
+    }
+  }
+
+  renderFilters();
+  refreshStats();
+  refreshEdits();
+  setInterval(refreshStats, 5000);
+  setInterval(refreshEdits, 5000);
+})();
+</script>
+</body>
+</html>
