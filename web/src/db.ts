@@ -10,6 +10,10 @@ export function isLabel(value: string): value is Label {
 
 const pool = new pg.Pool({ connectionString: config.databaseUrl });
 
+// pg.Pool emits "error" for idle clients (e.g. Postgres restart); an
+// unhandled "error" event would crash the process.
+pool.on("error", (err) => console.error("pg pool error (idle client):", err));
+
 export interface EditRow {
   rc_id: string;
   title: string | null;
