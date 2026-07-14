@@ -89,13 +89,60 @@ services:
       OLLAMA_HOST: http://ollama:11434
     entrypoint: ["/bin/sh", "-c", "ollama pull ${OLLAMA_MODEL:-llama3.2:3b}"]
 
-  # ---------------------------------------------------------------------------
-  # PLACEHOLDERS — owned by other issues; do not add here in this PR.
-  #
-  #   connect:   Redpanda Connect pipeline (filter/project wiki firehose) — issue #3
-  #   service:   TypeScript reasoning worker (LLM classification)        — issue #4
-  #   web:       read-only API + HTML page over Postgres                 — issue #5
-  # ---------------------------------------------------------------------------
+  # Redpanda Connect: Wikimedia SSE firehose -> filter/project ->
+  # wiki.edits.filtered (plumbing only — reasoning lives in service/).
+  connect:
+    image: docker.redpanda.com/redpandadata/connect:latest
+    command: run /connect/pipeline.yaml
+    volumes:
+      - ./connect:/connect:ro
+    environment:
+      REDPANDA_BROKERS: redpanda:9092
+      FILTER_MIN_DELTA: ${FILTER_MIN_DELTA:-25}
+    depends_on:
+      redpanda:
+        condition: service_healthy
+      topic-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # Reasoning worker: consumes wiki.edits.filtered, classifies via Ollama,
+  # UPSERTs into Postgres, audits to wiki.edits.classified.
+  service:
+    build: ./service
+    environment:
+      REDPANDA_BROKERS: redpanda:9092
+      TOPIC_FILTERED: wiki.edits.filtered
+      TOPIC_CLASSIFIED: wiki.edits.classified
+      GROUP_ID: triage
+      OLLAMA_URL: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2:3b}
+      DATABASE_URL: postgres://${POSTGRES_USER:-rp}:${POSTGRES_PASSWORD:-rp}@postgres:5432/${POSTGRES_DB:-wiki}
+    depends_on:
+      redpanda:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      topic-init:
+        condition: service_completed_successfully
+      # ollama's healthcheck (`ollama list`) passes before the model exists;
+      # the ollama-init pull completing is the real readiness gate.
+      ollama-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # Read-only API + single HTML page over Postgres.
+  web:
+    build: ./web
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-rp}:${POSTGRES_PASSWORD:-rp}@postgres:5432/${POSTGRES_DB:-wiki}
+      PORT: "8080"
+    ports:
+      - "${WEB_PORT:-8080}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
 
 volumes:
   redpanda-data:
