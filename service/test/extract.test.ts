@@ -37,6 +37,16 @@ describe('extractJsonObject', () => {
     expect(result).toEqual({ ok: true, value: { label: 'trivia', confidence: 0.8, reason: 'first' } });
   });
 
+  it('preserves triple-backtick sequences inside string values byte-for-byte', () => {
+    const result = extractJsonObject(
+      '{"label":"unclear","confidence":0.5,"reason":"see ```code``` block"}',
+    );
+    expect(result).toEqual({
+      ok: true,
+      value: { label: 'unclear', confidence: 0.5, reason: 'see ```code``` block' },
+    });
+  });
+
   it('keeps braces inside string values intact', () => {
     const result = extractJsonObject(fixture('nested-braces-in-string.txt'));
     expect(result).toEqual({
