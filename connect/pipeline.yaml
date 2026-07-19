@@ -1,5 +1,11 @@
 # Wikimedia recent-changes (SSE) -> filter/project -> Redpanda `wiki.edits.filtered`.
 # Plumbing only: filter + projection. All reasoning lives in service/ (CLAUDE.md).
+#
+# Error policy (issue #18): expected drops (SSE framing noise, policy rejects)
+# are deleted; STRUCTURAL anomalies (unparseable data lines, non-object
+# payloads, missing required fields) are dead-lettered to
+# `wiki.edits.deadletter` so upstream schema drift is observable and
+# replayable instead of silent data loss. Unit tests: pipeline_test.yaml.
 
 input:
   http_client:
@@ -23,54 +29,95 @@ input:
 
 pipeline:
   processors:
-    # Stage 1 — SSE framing. Only `data: <json>` lines carry events; everything
-    # else (`event:`, `id:`, `:ok` heartbeats, blank lines) is deleted. A data
-    # line that is not valid JSON is deleted too — parse_json() would otherwise
-    # error and the raw string would pass through (Bloblang fails OPEN).
-    - mapping: |
-        root = if content().string().has_prefix("data: ") {
-          content().string().trim_prefix("data: ").parse_json().catch(deleted())
-        } else {
-          deleted()
-        }
+    # A throw() anywhere inside `try` marks the message errored and skips the
+    # remaining try processors, leaving the content as it was BEFORE the
+    # failing stage; `catch` below then flags it for the dead-letter output.
+    - try:
+        # Stage 1 — SSE framing. Only `data: <json>` lines carry events;
+        # everything else (`event:`, `id:`, `:ok` heartbeats, blank lines) is
+        # expected noise and is deleted. A data line that is NOT valid JSON is
+        # a structural anomaly — without the throw, parse_json() would error
+        # and the raw string would pass through (Bloblang fails OPEN).
+        - mapping: |
+            root = if content().string().has_prefix("data: ") {
+              content().string().trim_prefix("data: ").parse_json().catch(
+                throw("sse data line is not valid JSON")
+              )
+            } else {
+              deleted()
+            }
 
-    # Stage 2 — filter + projection, root built exactly once. Every condition is
-    # wrapped in .or(<rejecting default>) so a missing field or wrong type can
-    # never error the mapping and leak an unfiltered message downstream.
-    - mapping: |
-        root = if this.type().or("") != "object" ||
-            this.type.or("") != "edit" ||
-            this.bot.or(true) != false ||
-            this.namespace.or(-1) != 0 ||
-            this.meta.domain.or("") != "en.wikipedia.org" ||
-            (this.length.new.or(0) - this.length.old.or(0)).abs() < ${FILTER_MIN_DELTA:25} {
-          deleted()
-        } else {
-          {
-            "rc_id":      this.id,
-            "title":      this.title,
-            "title_url":  this.title_url,
-            "comment":    this.comment.or(""),
-            "user":       this.user,
-            "bot":        this.bot,
-            "minor":      this.minor,
-            "length_old": this.length.old.catch(null),
-            "length_new": this.length.new.catch(null),
-            "rev_old":    this.revision.old.catch(null),
-            "rev_new":    this.revision.new.catch(null),
-            "server_url": this.server_url,
-            "notify_url": this.notify_url,
-            "domain":     this.meta.domain,
-            "event_time": this.meta.dt
-          }
-        }
+        # Stage 2 — structural validation. The filter below decides on these
+        # fields, so their ABSENCE means upstream schema drift, not a policy
+        # reject — dead-letter it. (`length`/`revision` stay optional: they are
+        # genuinely absent on some event kinds and project to null.)
+        - mapping: |
+            root = if this.type() != "object" {
+              throw("payload is not a JSON object")
+            } else if ["type", "bot", "namespace", "id", "title"].any(f -> !this.exists(f)) ||
+                !this.exists("meta.domain") {
+              throw("missing required field(s): " + (["type", "bot", "namespace", "id", "title", "meta.domain"].filter(f -> !this.exists(f))).join(", "))
+            } else {
+              this
+            }
+
+        # Stage 3 — policy filter + projection, root built exactly once.
+        # Everything dropped here is a VALID event we chose not to process;
+        # deletion (not dead-lettering) is intentional — DLQ'ing the ~99.6%
+        # policy-rejected firehose would just recreate it one topic over.
+        - mapping: |
+            root = if this.type != "edit" ||
+                this.bot != false ||
+                this.namespace != 0 ||
+                this.meta.domain.or("") != "en.wikipedia.org" ||
+                (this.length.new.or(0) - this.length.old.or(0)).abs() < ${FILTER_MIN_DELTA:25} {
+              deleted()
+            } else {
+              {
+                "rc_id":      this.id,
+                "title":      this.title,
+                "title_url":  this.title_url,
+                "comment":    this.comment.or(""),
+                "user":       this.user,
+                "bot":        this.bot,
+                "minor":      this.minor,
+                "length_old": this.length.old.catch(null),
+                "length_new": this.length.new.catch(null),
+                "rev_old":    this.revision.old.catch(null),
+                "rev_new":    this.revision.new.catch(null),
+                "server_url": this.server_url,
+                "notify_url": this.notify_url,
+                "domain":     this.meta.domain,
+                "event_time": this.meta.dt
+              }
+            }
+
+    # Runs only for messages that errored inside `try`; clears the error flag,
+    # so routing below keys off the metadata, not errored().
+    - catch:
+        - mapping: |
+            meta dlq = "true"
+            meta dlq_reason = error()
 
 output:
-  kafka_franz:
-    seed_brokers: ["${REDPANDA_BROKERS:redpanda:9092}"]
-    topic: wiki.edits.filtered
-    key: ${! json("title") }
-    # Pinned: unset defaults to snappy, which the downstream kafkajs consumer
-    # cannot decode (KafkaJSNotImplemented). Volume is tiny; plain payloads
-    # keep rpk/debug output readable.
-    compression: none
+  switch:
+    cases:
+      - check: '(@dlq | "") == "true"'
+        output:
+          kafka_franz:
+            seed_brokers: ["${REDPANDA_BROKERS:redpanda:9092}"]
+            topic: wiki.edits.deadletter
+            # Payload is the message as it stood before the failing stage (raw
+            # line or parsed object); the reason travels as record headers.
+            metadata:
+              include_patterns: ["^dlq"]
+            compression: none
+      - output:
+          kafka_franz:
+            seed_brokers: ["${REDPANDA_BROKERS:redpanda:9092}"]
+            topic: wiki.edits.filtered
+            key: ${! json("title") }
+            # Pinned: unset defaults to snappy, which the downstream kafkajs
+            # consumer cannot decode (KafkaJSNotImplemented). Volume is tiny;
+            # plain payloads keep rpk/debug output readable.
+            compression: none

@@ -27,7 +27,7 @@ services:
       retries: 12
       start_period: 15s
 
-  # One-shot: creates the two pipeline topics, then exits 0. Tolerates
+  # One-shot: creates the pipeline topics, then exits 0. Tolerates
   # already-existing topics (create fails -> describe must succeed).
   topic-init:
     image: docker.redpanda.com/redpandadata/redpanda:latest
@@ -39,7 +39,7 @@ services:
     command:
       - |
         set -e
-        for t in wiki.edits.filtered wiki.edits.classified; do
+        for t in wiki.edits.filtered wiki.edits.classified wiki.edits.deadletter; do
           rpk topic create "$$t" --partitions 1 -X brokers=redpanda:9092 \
             || rpk topic describe "$$t" -X brokers=redpanda:9092 >/dev/null
         done
@@ -91,6 +91,7 @@ services:
 
   # Redpanda Connect: Wikimedia SSE firehose -> filter/project ->
   # wiki.edits.filtered (plumbing only — reasoning lives in service/).
+  # Structural anomalies (schema drift) route to wiki.edits.deadletter.
   connect:
     image: docker.redpanda.com/redpandadata/connect:latest
     command: run /connect/pipeline.yaml
