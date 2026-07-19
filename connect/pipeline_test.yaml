@@ -1,0 +1,78 @@
+# Unit tests for pipeline.yaml (Connect's built-in test runner). Run:
+#   docker run --rm -v "$PWD/connect:/connect" docker.redpanda.com/redpandadata/connect:latest test /connect/pipeline_test.yaml
+#
+# Contract under test: SSE framing noise and policy rejects are deleted;
+# structural anomalies are flagged for the dead-letter topic (metadata
+# dlq = "true" + dlq_reason) with their payload preserved.
+
+tests:
+  - name: heartbeat and framing lines are deleted, not dead-lettered
+    target_processors: 'pipeline.yaml#/pipeline/processors'
+    input_batch:
+      - content: ': ok'
+      - content: 'event: message'
+      - content: 'id: [{"topic":"eqiad.mediawiki.recentchange","offset":1}]'
+      - content: ''
+    output_batches: []
+
+  - name: unparseable data line is dead-lettered with the raw line preserved
+    target_processors: 'pipeline.yaml#/pipeline/processors'
+    input_batch:
+      - content: 'data: not json {'
+    output_batches:
+      - - content_equals: 'data: not json {'
+          metadata_equals:
+            dlq: "true"
+
+  - name: non-object payload is dead-lettered
+    target_processors: 'pipeline.yaml#/pipeline/processors'
+    input_batch:
+      - content: 'data: 42'
+    output_batches:
+      - - metadata_equals:
+            dlq: "true"
+
+  - name: payload missing a required field (bot) is dead-lettered, payload preserved
+    target_processors: 'pipeline.yaml#/pipeline/processors'
+    input_batch:
+      - content: 'data: {"type":"edit","namespace":0,"id":1,"title":"X","meta":{"domain":"en.wikipedia.org","dt":"2026-07-19T15:00:00Z"}}'
+    output_batches:
+      - - json_equals:
+            type: edit
+            namespace: 0
+            id: 1
+            title: X
+            meta:
+              domain: en.wikipedia.org
+              dt: "2026-07-19T15:00:00Z"
+          metadata_equals:
+            dlq: "true"
+
+  - name: policy rejects (bot edit, tiny delta) are deleted, not dead-lettered
+    target_processors: 'pipeline.yaml#/pipeline/processors'
+    input_batch:
+      - content: 'data: {"type":"edit","namespace":0,"bot":true,"id":2,"title":"BotPage","comment":"","user":"SomeBot","minor":false,"length":{"old":100,"new":200},"revision":{"old":1,"new":2},"server_url":"https://en.wikipedia.org","notify_url":"","title_url":"","meta":{"domain":"en.wikipedia.org","dt":"2026-07-19T15:00:00Z"}}'
+      - content: 'data: {"type":"edit","namespace":0,"bot":false,"id":3,"title":"TinyDelta","comment":"","user":"Alice","minor":true,"length":{"old":100,"new":101},"revision":{"old":1,"new":2},"server_url":"https://en.wikipedia.org","notify_url":"","title_url":"","meta":{"domain":"en.wikipedia.org","dt":"2026-07-19T15:00:00Z"}}'
+    output_batches: []
+
+  - name: human en-wiki article edit above the delta threshold is projected to 15 fields
+    target_processors: 'pipeline.yaml#/pipeline/processors'
+    input_batch:
+      - content: 'data: {"type":"edit","namespace":0,"bot":false,"id":12345,"title":"Belgrade","title_url":"https://en.wikipedia.org/wiki/Belgrade","comment":"expanded history section","user":"Alice","minor":false,"length":{"old":1000,"new":1100},"revision":{"old":111,"new":222},"server_url":"https://en.wikipedia.org","notify_url":"https://en.wikipedia.org/w/index.php?diff=222&oldid=111","meta":{"domain":"en.wikipedia.org","dt":"2026-07-19T15:00:00Z"}}'
+    output_batches:
+      - - json_equals:
+            rc_id: 12345
+            title: Belgrade
+            title_url: 'https://en.wikipedia.org/wiki/Belgrade'
+            comment: expanded history section
+            user: Alice
+            bot: false
+            minor: false
+            length_old: 1000
+            length_new: 1100
+            rev_old: 111
+            rev_new: 222
+            server_url: 'https://en.wikipedia.org'
+            notify_url: 'https://en.wikipedia.org/w/index.php?diff=222&oldid=111'
+            domain: en.wikipedia.org
+            event_time: "2026-07-19T15:00:00Z"

@@ -46,7 +46,8 @@ Wikimedia SSE firehose (stream.wikimedia.org/v2/stream/recentchange)
         ▼
 Redpanda Connect ── filter: human en.wikipedia article edits,
         │           |byte delta| >= FILTER_MIN_DELTA; project to a lean record
-        ▼
+        ├──▶ topic wiki.edits.deadletter   (structural anomalies: unparseable /
+        ▼                                   malformed events, reason in headers)
 topic wiki.edits.filtered            (keyed by page title)
         │
         ▼
@@ -65,8 +66,8 @@ reasoning service                    (consumer group: triage)
 | Component | Image / build | Role |
 |---|---|---|
 | `redpanda` | `redpandadata/redpanda:latest` | Single-node broker (`--mode=dev-container`) |
-| `topic-init` | same image, one-shot | Creates the two topics, exits |
-| `connect` | `redpandadata/connect:latest` | SSE ingest, filter + projection — no reasoning |
+| `topic-init` | same image, one-shot | Creates the three topics, exits |
+| `connect` | `redpandadata/connect:latest` | SSE ingest, filter + projection — no reasoning; structural anomalies → `wiki.edits.deadletter` |
 | `ollama` + `ollama-init` | `ollama/ollama` | Local LLM server; init pulls `OLLAMA_MODEL`, exits |
 | `postgres` | `postgres:16` | Read model; `sql/schema.sql` auto-applied on first boot (initdb mount) |
 | `service` | built from `./service` | Reasoning worker (TypeScript, kafkajs, pg) |
@@ -116,6 +117,10 @@ docker compose exec redpanda rpk topic consume wiki.edits.filtered --num 3
 # the service's audit trail
 docker compose exec redpanda rpk topic consume wiki.edits.classified --num 3
 
+# dead-lettered structural anomalies (normally empty — traffic here means
+# upstream schema drift; the reason is in the dlq_reason header)
+docker compose exec redpanda rpk topic consume wiki.edits.deadletter --num 3
+
 # the read model
 docker compose exec postgres psql -U rp -d wiki -c "SELECT label, count(*) FROM edits GROUP BY label;"
 
@@ -133,6 +138,13 @@ cd service && npm install && npm test
 cover dirty-model-output parsing, label normalization, the confidence
 boundary (0.59 / 0.6 / 0.61), the pipeline state machine driven with fakes,
 and the crash-exit wiring.
+
+The Connect mappings have their own unit tests (framing drops, policy drops,
+dead-letter routing, the projection), run via the Connect image:
+
+```sh
+docker run --rm -v $PWD/connect:/connect docker.redpanda.com/redpandadata/connect:latest test /connect/pipeline_test.yaml
+```
 
 ## Configuration
 

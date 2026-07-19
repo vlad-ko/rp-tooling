@@ -45,6 +45,10 @@ compose: "docker compose up  —  everything below, zero manual steps" {
   redpanda: "Redpanda\nsingle node, --mode=dev-container" {
     filtered: "topic\nwiki.edits.filtered" {class: topic}
     classified: "topic\nwiki.edits.classified" {class: topic}
+    deadletter: "topic\nwiki.edits.deadletter" {
+      class: topic
+      style.stroke-dash: 3
+    }
   }
 
   service: "reasoning service  ·  service/  (TypeScript, kafkajs)" {
@@ -75,6 +79,7 @@ compose: "docker compose up  —  everything below, zero manual steps" {
   ollama-init -> ollama: {class: wire}
 
   connect.filter -> redpanda.filtered: "keyed by page title\n~12 ev/min after filtering"
+  connect -> redpanda.deadletter: "structural anomalies\n(reason in headers)" {class: wire}
   redpanda.filtered -> service.gate: "consumer group: triage\nat-least-once"
 
   service.classify -> ollama: "chat\n(retries + backoff)"
