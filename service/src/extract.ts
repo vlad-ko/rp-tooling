@@ -2,17 +2,16 @@ export type ExtractResult =
   | { ok: true; value: Record<string, unknown> }
   | { ok: false; reason: string };
 
-function stripFences(text: string): string {
-  return text.replace(/```[a-zA-Z0-9_-]*\n?/g, '').replace(/```/g, '');
-}
-
+// No fence-stripping preprocessing: the balanced-brace scan below already
+// digs the object out of ```-fenced output (fences sit outside the braces),
+// and a stripping regex would corrupt backtick sequences INSIDE string
+// values (issue #20).
 export function extractJsonObject(text: string): ExtractResult {
-  const stripped = stripFences(text);
-  if (stripped.trim().length === 0) {
+  if (text.trim().length === 0) {
     return { ok: false, reason: 'empty or whitespace-only output' };
   }
-  const objStart = stripped.indexOf('{');
-  const arrStart = stripped.indexOf('[');
+  const objStart = text.indexOf('{');
+  const arrStart = text.indexOf('[');
   if (arrStart !== -1 && (objStart === -1 || arrStart < objStart)) {
     return { ok: false, reason: 'top-level JSON array; a single object is required' };
   }
@@ -22,8 +21,8 @@ export function extractJsonObject(text: string): ExtractResult {
   let depth = 0;
   let inString = false;
   let escaped = false;
-  for (let i = objStart; i < stripped.length; i++) {
-    const ch = stripped.charAt(i);
+  for (let i = objStart; i < text.length; i++) {
+    const ch = text.charAt(i);
     if (inString) {
       if (escaped) escaped = false;
       else if (ch === '\\') escaped = true;
@@ -37,7 +36,7 @@ export function extractJsonObject(text: string): ExtractResult {
     } else if (ch === '}') {
       depth--;
       if (depth === 0) {
-        const candidate = stripped.slice(objStart, i + 1);
+        const candidate = text.slice(objStart, i + 1);
         try {
           return { ok: true, value: JSON.parse(candidate) as Record<string, unknown> };
         } catch (err) {

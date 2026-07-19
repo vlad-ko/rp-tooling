@@ -129,7 +129,7 @@ curl localhost:8080/api/stats
 cd service && npm install && npm test
 ```
 
-84 tests, all pure-function — no Docker, Kafka, or network required. They
+85 tests, all pure-function — no Docker, Kafka, or network required. They
 cover dirty-model-output parsing, label normalization, the confidence
 boundary (0.59 / 0.6 / 0.61), the pipeline state machine driven with fakes,
 and the crash-exit wiring.
