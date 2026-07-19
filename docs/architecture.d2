@@ -1,0 +1,100 @@
+# rp-tooling architecture — regenerate the SVG with:
+#   d2 --theme 0 --dark-theme 200 docs/architecture.d2 docs/architecture.svg
+
+direction: down
+
+classes: {
+  external: {
+    style: {
+      stroke-dash: 3
+      fill: "#F7F7F7"
+      font-color: "#444444"
+    }
+  }
+  oneshot: {
+    style: {
+      stroke-dash: 3
+      font-size: 13
+      opacity: 0.75
+    }
+  }
+  topic: {
+    shape: queue
+  }
+  wire: {
+    style: {
+      stroke-dash: 3
+      opacity: 0.6
+      font-size: 13
+    }
+  }
+}
+
+wikimedia: "Wikimedia recent-changes\nSSE firehose (no auth)" {
+  class: external
+  shape: cloud
+}
+
+compose: "docker compose up  —  everything below, zero manual steps" {
+  connect: "Redpanda Connect\nconnect/pipeline.yaml (plumbing only)" {
+    framing: "SSE framing\nkeep data: JSON lines,\ndrop heartbeats / bad JSON"
+    filter: "filter + project\nhuman en-wiki article edits,\n|byte Δ| ≥ FILTER_MIN_DELTA (25)\n→ lean 15-field record"
+    framing -> filter
+  }
+
+  redpanda: "Redpanda\nsingle node, --mode=dev-container" {
+    filtered: "topic\nwiki.edits.filtered" {class: topic}
+    classified: "topic\nwiki.edits.classified" {class: topic}
+  }
+
+  service: "reasoning service  ·  service/  (TypeScript, kafkajs)" {
+    gate: "1 · heuristic gate (no LLM)\nbot or tiny minor edit → trivia"
+    classify: "2 · classify — pass llm-1"
+    parse: "3 · parse + repair\nbalanced-brace JSON extract,\nmax 1 repair retry;\nstill dirty → unclear"
+    branch: "4 · confidence < 0.6 ?"
+    enrich: "5 · enrich — pass llm-2\nfetch real diff, re-classify once;\npass-2 verdict wins"
+
+    gate -> classify: "not obvious"
+    classify -> parse
+    parse -> branch
+    branch -> enrich: "yes"
+  }
+
+  ollama: "Ollama\nOLLAMA_MODEL (llama3.2:3b)"
+
+  postgres: "Postgres 16\ntable edits (read model)" {
+    shape: cylinder
+  }
+
+  web: "web  ·  read-only\n/  ·  /api/edits  ·  /api/stats"
+
+  topic-init: "topic-init\none-shot: create topics, exit 0" {class: oneshot}
+  ollama-init: "ollama-init\none-shot: pull model, exit 0" {class: oneshot}
+
+  topic-init -> redpanda: {class: wire}
+  ollama-init -> ollama: {class: wire}
+
+  connect.filter -> redpanda.filtered: "keyed by page title\n~12 ev/min after filtering"
+  redpanda.filtered -> service.gate: "consumer group: triage\nat-least-once"
+
+  service.classify -> ollama: "chat\n(retries + backoff)"
+  service.enrich -> ollama
+
+  service -> postgres: "UPSERT keyed on rc_id\n(idempotent — redelivery is safe)"
+  service -> redpanda.classified: "audit record,\nkeyed by rc_id"
+
+  postgres -> web: "SELECT only"
+}
+
+browser: "you\nlocalhost:8080" {
+  shape: person
+}
+
+mediawiki: "MediaWiki compare API\n(action=compare)" {
+  class: external
+  shape: cloud
+}
+
+wikimedia -> compose.connect.framing: "SSE ~50 ev/s\n(mandatory User-Agent)"
+compose.service.enrich -> mediawiki: "fetch diff\n(only when confidence < 0.6)"
+compose.web -> browser
