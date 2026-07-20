@@ -4,6 +4,7 @@ import { config } from "./config.js";
 export const LABELS = ["vandalism", "substantive", "trivia", "unclear"] as const;
 export type Label = (typeof LABELS)[number];
 
+/** Type guard against the closed enum — gates the ?label= query param before it reaches SQL. */
 export function isLabel(value: string): value is Label {
   return (LABELS as readonly string[]).includes(value);
 }
@@ -33,6 +34,10 @@ export interface EditRow {
   processed_at: Date | null;
 }
 
+/**
+ * Newest-first by processed_at. label null = all labels (the $1 IS NULL OR
+ * trick keeps it one query/plan). Caller validates limit; SELECT-only.
+ */
 export async function recentEdits(
   label: Label | null,
   limit: number,
@@ -57,6 +62,7 @@ export interface Stats {
   last_processed_at: Date | null;
 }
 
+/** Label/pass counts + avg confidence in three concurrent aggregates; empty table yields total 0, empty maps. */
 export async function stats(): Promise<Stats> {
   const [totals, byLabel, byPass] = await Promise.all([
     pool.query<{ total: number; last_processed_at: Date | null }>(

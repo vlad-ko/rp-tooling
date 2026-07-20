@@ -1,3 +1,4 @@
+/** All env reads for web live here; defaults target local dev outside compose. */
 export const config = {
   databaseUrl:
     process.env.DATABASE_URL ??

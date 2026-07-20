@@ -2,10 +2,15 @@ export type ExtractResult =
   | { ok: true; value: Record<string, unknown> }
   | { ok: false; reason: string };
 
-// No fence-stripping preprocessing: the balanced-brace scan below already
-// digs the object out of ```-fenced output (fences sit outside the braces),
-// and a stripping regex would corrupt backtick sequences INSIDE string
-// values (issue #20).
+/**
+ * Digs the FIRST balanced {...} object out of dirty model output (prose,
+ * fences, trailing junk). String- and escape-aware, so braces inside string
+ * values never fool the scan. Rejects (with a reason, for the error column):
+ * empty output, top-level arrays, truncated objects, candidates that fail
+ * JSON.parse. No fence-stripping preprocessing: fences sit outside the
+ * braces anyway, and a stripping regex corrupted backticks INSIDE string
+ * values (issue #20).
+ */
 export function extractJsonObject(text: string): ExtractResult {
   if (text.trim().length === 0) {
     return { ok: false, reason: 'empty or whitespace-only output' };

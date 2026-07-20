@@ -40,6 +40,7 @@ export function wireCrashExit(
   });
 }
 
+/** Projects the row to the audit-topic shape (drops web-only fields; event_time '' when null). */
 export function toClassifiedMessage(row: EditRow): ClassifiedMessage {
   return {
     rc_id: row.rc_id,
@@ -56,6 +57,7 @@ export function toClassifiedMessage(row: EditRow): ClassifiedMessage {
   };
 }
 
+/** Polls until the dependency answers, then resumes the paused partition; probe errors count as not-ready. */
 async function resumeWhenReady(isReady: () => Promise<boolean>, resume: () => void): Promise<void> {
   for (;;) {
     await new Promise((resolve) => setTimeout(resolve, READINESS_POLL_MS));
@@ -66,6 +68,15 @@ async function resumeWhenReady(isReady: () => Promise<boolean>, resume: () => vo
   }
 }
 
+/**
+ * One message at a time: decode (null -> skip: poison-pill safety) ->
+ * processEdit -> UPSERT -> audit publish. fromBeginning:true makes a
+ * group with no stored offset replay the retained log — the cold-start
+ * path doubles as disaster recovery. Infra errors (Ollama/Pg) pause the
+ * partition until the dependency recovers; every error rethrows so the
+ * offset is NOT committed and the message redelivers (at-least-once;
+ * safe because the UPSERT is idempotent).
+ */
 export async function startConsumer(d: ConsumerDeps): Promise<void> {
   await d.consumer.subscribe({ topic: d.cfg.topicFiltered, fromBeginning: true });
   await d.consumer.run({

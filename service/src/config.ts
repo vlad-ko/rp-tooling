@@ -17,12 +17,17 @@ export interface Config {
 
 type Env = Record<string, string | undefined>;
 
+/** Fallback on unset, empty, or non-finite input — never NaN into config. */
 function numberOr(raw: string | undefined, fallback: number): number {
   if (raw === undefined || raw.trim() === '') return fallback;
   const n = Number(raw);
   return Number.isFinite(n) ? n : fallback;
 }
 
+/**
+ * The ONLY place env vars are read (CLAUDE.md); call sites take Config.
+ * Every knob has a default — loading never throws, result is frozen.
+ */
 export function loadConfig(env: Env = process.env): Readonly<Config> {
   return Object.freeze({
     brokers: (env['REDPANDA_BROKERS'] ?? 'redpanda:9092')

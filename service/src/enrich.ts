@@ -7,6 +7,12 @@ export type FetchDiffFn = (serverUrl: string, revOld: number, revNew: number) =>
 
 const USER_AGENT = 'rp-tooling-triage/0.1 (local exercise; contact: repo owner)';
 
+/**
+ * Fetches the real diff via MediaWiki action=compare. Never throws — every
+ * failure (network, timeout, HTTP status, shape) returns { error } so the
+ * pipeline can keep the pass-1 verdict and record the reason. One retry,
+ * immediate (enrichment is optional; not worth stalling the partition).
+ */
 export function createDiffFetcher(opts: { timeoutMs: number; maxChars: number }): FetchDiffFn {
   async function attempt(url: string): Promise<FetchDiffResult> {
     let res: Response;

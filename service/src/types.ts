@@ -1,9 +1,16 @@
+/**
+ * Closed enum, mirrored by a CHECK constraint in sql/schema.sql. 'unclear'
+ * is the abstention class — the guaranteed fallback for unparseable or
+ * off-enum model output; rows are never dropped.
+ */
 export const LABELS = ['vandalism', 'substantive', 'trivia', 'unclear'] as const;
 export type Label = typeof LABELS[number];
 
+/** Provenance of the FINAL verdict (not a state machine): free rule, first LLM pass, or enriched reclassify. */
 export const PASSES = ['heuristic', 'llm-1', 'llm-2'] as const;
 export type Pass = typeof PASSES[number];
 
+/** One record from wiki.edits.filtered — the lean projection Connect emits (metadata only; no edit content). */
 export interface FilteredEdit {
   rc_id: number;
   title: string;
@@ -34,6 +41,7 @@ export interface EnrichmentContext {
   sourceUrl: string;
 }
 
+/** One row of the `edits` read model: the original edit + the verdict + its provenance receipts. */
 export interface EditRow {
   rc_id: number;
   title: string;
@@ -58,6 +66,7 @@ export interface EditRow {
   processed_at: string;
 }
 
+/** Audit record published to wiki.edits.classified (keyed by rc_id; duplicates possible under redelivery). */
 export interface ClassifiedMessage {
   rc_id: number;
   title: string;

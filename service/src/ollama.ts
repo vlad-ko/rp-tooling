@@ -1,5 +1,10 @@
 import type { ChatMessage } from './prompt.js';
 
+/**
+ * Infra failure (server down/unresponsive), as distinct from content
+ * failure (dirty output). The consumer pauses on this; it never becomes
+ * an `unclear` row.
+ */
 export class OllamaUnreachableError extends Error {
   constructor(message: string, options?: ErrorOptions) {
     super(message, options);
@@ -13,6 +18,13 @@ export interface OllamaClient {
   waitUntilReady: (timeoutMs: number) => Promise<void>;
 }
 
+/**
+ * chat() posts to the native /api/chat with format:'json' (constrained
+ * decoding — guarantees JSON syntax, NOT our schema) and returns the raw
+ * content string, '' on shape surprises; throws OllamaUnreachableError on
+ * transport/HTTP failures. Single-attempt by design — retries are the
+ * caller's policy (pipeline.chatWithRetry).
+ */
 export function createOllamaClient(opts: { url: string; model: string }): OllamaClient {
   async function chat(messages: ChatMessage[]): Promise<string> {
     let res: Response;
