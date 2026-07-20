@@ -92,12 +92,12 @@ dropped and bad data never crashes the pipeline.
   pass: the service fetches the real diff from the MediaWiki compare API and
   re-classifies with that context. The pass-2 verdict wins unconditionally —
   its confidence never triggers a pass-3.
-- All writes are **UPSERTs keyed on `rc_id`**, so at-least-once delivery from
-  Kafka is safe: redelivery just rewrites the same row.
+- All writes are **UPSERTs keyed on `rc_id`**, so the broker's at-least-once
+  delivery is safe: redelivery just rewrites the same row.
 - **Infra failure ≠ crash**: if Ollama or Postgres goes down, the consumer
   pauses the partition and polls until the dependency recovers. Non-retriable
-  Kafka errors exit the process non-zero so the container restart policy takes
-  over instead of leaving a zombie.
+  kafkajs client errors exit the process non-zero so the container restart
+  policy takes over instead of leaving a zombie.
 - An **error taxonomy** is recorded per row (`unparseable_after_repair`,
   `enrichment_skipped_no_revs`, `enrichment_fetch_failed`,
   `enrichment_reclassify_unparseable`), alongside which pass produced the
@@ -134,7 +134,7 @@ curl localhost:8080/api/stats
 cd service && npm install && npm test
 ```
 
-85 tests, all pure-function — no Docker, Kafka, or network required. They
+85 tests, all pure-function — no Docker, no broker, no network required. They
 cover dirty-model-output parsing, label normalization, the confidence
 boundary (0.59 / 0.6 / 0.61), the pipeline state machine driven with fakes,
 and the crash-exit wiring.
