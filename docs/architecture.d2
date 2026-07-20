@@ -1,5 +1,5 @@
 # rp-tooling architecture — regenerate the SVG with:
-#   d2 --theme 0 --dark-theme 200 docs/architecture.d2 docs/architecture.svg
+#   d2 --theme 0 --dark-theme 200 --pad 20 docs/architecture.d2 docs/architecture.svg
 
 direction: down
 
@@ -9,97 +9,112 @@ classes: {
       stroke-dash: 3
       fill: "#F7F7F7"
       font-color: "#444444"
+      font-size: 18
     }
   }
   oneshot: {
     style: {
       stroke-dash: 3
-      font-size: 13
+      font-size: 15
       opacity: 0.75
     }
   }
   topic: {
     shape: queue
+    style.font-size: 18
+  }
+  step: {
+    style.font-size: 18
   }
   wire: {
     style: {
       stroke-dash: 3
       opacity: 0.6
-      font-size: 13
+      font-size: 14
     }
   }
 }
 
-wikimedia: "Wikimedia recent-changes\nSSE firehose (no auth)" {
+wikimedia: "Wikimedia recent-changes\nSSE firehose · ~50 ev/s" {
   class: external
   shape: cloud
 }
 
-compose: "docker compose up  —  everything below, zero manual steps" {
-  connect: "Redpanda Connect\nconnect/pipeline.yaml (plumbing only)" {
-    framing: "SSE framing\nkeep data: JSON lines,\ndrop heartbeats / bad JSON"
-    filter: "filter + project\nhuman en-wiki article edits,\n|byte Δ| ≥ FILTER_MIN_DELTA (25)\n→ lean 15-field record"
+compose: "docker compose up — zero manual steps" {
+  style.font-size: 22
+
+  connect: "Redpanda Connect  ·  plumbing only" {
+    grid-rows: 1
+    grid-gap: 40
+    style.font-size: 20
+    framing: "SSE framing\nkeep data: JSON,\ndrop heartbeats" {class: step}
+    filter: "filter + project\nhuman en-wiki edits,\n|Δ| ≥ 25 bytes" {class: step}
     framing -> filter
   }
 
-  redpanda: "Redpanda\nsingle node, --mode=dev-container" {
-    filtered: "topic\nwiki.edits.filtered" {class: topic}
-    classified: "topic\nwiki.edits.classified" {class: topic}
-    deadletter: "topic\nwiki.edits.deadletter" {
+  redpanda: "Redpanda  ·  dev-container" {
+    style.font-size: 20
+    topic-init: "topic-init\ncreate topics, exit" {class: oneshot}
+    filtered: "wiki.edits\n.filtered" {class: topic}
+    classified: "wiki.edits\n.classified" {class: topic}
+    deadletter: "wiki.edits\n.deadletter" {
       class: topic
       style.stroke-dash: 3
     }
   }
 
-  service: "reasoning service  ·  service/  (TypeScript, kafkajs)" {
-    gate: "1 · heuristic gate (no LLM)\nbot or tiny minor edit → trivia"
-    classify: "2 · classify — pass llm-1"
-    parse: "3 · parse + repair\nbalanced-brace JSON extract,\nmax 1 repair retry;\nstill dirty → unclear"
-    branch: "4 · confidence < 0.6 ?"
-    enrich: "5 · enrich — pass llm-2\nfetch real diff, re-classify once;\npass-2 verdict wins"
+  service: "reasoning service  ·  TypeScript" {
+    grid-rows: 1
+    grid-gap: 40
+    style.font-size: 20
+    gate: "1 · heuristic gate\nno LLM: bot / tiny → trivia" {class: step}
+    classify: "2 · classify\npass llm-1" {class: step}
+    parse: "3 · parse + repair\nmax 1 retry, else unclear" {class: step}
+    branch: "4 · confidence\n< 0.6 ?" {class: step}
+    enrich: "5 · enrich · llm-2\nreal diff, reclassify once" {class: step}
 
-    gate -> classify: "not obvious"
+    gate -> classify
     classify -> parse
     parse -> branch
-    branch -> enrich: "yes"
+    branch -> enrich: "yes" {style.font-size: 15}
   }
 
-  ollama: "Ollama\nOLLAMA_MODEL (llama3.2:3b)"
+  ollama: "Ollama\nllama3.2:3b" {style.font-size: 18}
 
-  postgres: "Postgres 16\ntable edits (read model)" {
+  postgres: "Postgres 16\ntable edits" {
     shape: cylinder
+    style.font-size: 18
   }
 
-  web: "web  ·  read-only\n/  ·  /api/edits  ·  /api/stats"
+  web: "web · read-only\n/api/edits · /api/stats" {style.font-size: 18}
 
-  topic-init: "topic-init\none-shot: create topics, exit 0" {class: oneshot}
-  ollama-init: "ollama-init\none-shot: pull model, exit 0" {class: oneshot}
+  ollama-init: "ollama-init\npull model, exit" {class: oneshot}
 
-  topic-init -> redpanda: {class: wire}
   ollama-init -> ollama: {class: wire}
 
-  connect.filter -> redpanda.filtered: "keyed by page title\n~12 ev/min after filtering"
-  connect -> redpanda.deadletter: "structural anomalies\n(reason in headers)" {class: wire}
-  redpanda.filtered -> service.gate: "consumer group: triage\nat-least-once"
+  connect.filter -> redpanda.filtered: "~12 ev/min\nkey: title" {style.font-size: 15}
+  connect -> redpanda.deadletter: "anomalies" {class: wire}
+  redpanda.filtered -> service.gate: "group triage\nat-least-once" {style.font-size: 15}
 
-  service.classify -> ollama: "chat\n(retries + backoff)"
+  service.classify -> ollama: "chat" {style.font-size: 15}
   service.enrich -> ollama
 
-  service -> postgres: "UPSERT keyed on rc_id\n(idempotent — redelivery is safe)"
-  service -> redpanda.classified: "audit record,\nkeyed by rc_id"
+  service -> postgres: "UPSERT on rc_id" {style.font-size: 15}
+  service -> redpanda.classified: "audit" {style.font-size: 15}
 
-  postgres -> web: "SELECT only"
+  postgres -> web: "SELECT only" {style.font-size: 15}
 }
 
 browser: "you\nlocalhost:8080" {
   shape: person
+  style.font-size: 18
 }
 
-mediawiki: "MediaWiki compare API\n(action=compare)" {
+mediawiki: "MediaWiki\ncompare API" {
   class: external
   shape: cloud
 }
 
-wikimedia -> compose.connect.framing: "SSE ~50 ev/s\n(mandatory User-Agent)"
-compose.service.enrich -> mediawiki: "fetch diff\n(only when confidence < 0.6)"
+wikimedia -> compose.connect.framing: "SSE · UA required" {style.font-size: 15}
+compose.service.enrich -> mediawiki
 compose.web -> browser
