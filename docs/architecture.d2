@@ -38,9 +38,12 @@ classes: {
 wikimedia: "Wikimedia recent-changes\nSSE firehose · ~50 ev/s" {
   class: external
   shape: cloud
+  near: top-left
 }
 
 compose: "docker compose up — zero manual steps" {
+  grid-columns: 1
+  grid-gap: 70
   style.font-size: 22
 
   connect: "Redpanda Connect  ·  plumbing only" {
@@ -53,6 +56,8 @@ compose: "docker compose up — zero manual steps" {
   }
 
   redpanda: "Redpanda  ·  dev-container" {
+    grid-rows: 1
+    grid-gap: 40
     style.font-size: 20
     topic-init: "topic-init\ncreate topics, exit" {class: oneshot}
     filtered: "wiki.edits\n.filtered" {class: topic}
@@ -64,7 +69,7 @@ compose: "docker compose up — zero manual steps" {
   }
 
   service: "reasoning service  ·  TypeScript" {
-    grid-rows: 1
+    grid-rows: 2
     grid-gap: 40
     style.font-size: 20
     gate: "1 · heuristic gate\nno LLM: bot / tiny → trivia" {class: step}
@@ -79,42 +84,46 @@ compose: "docker compose up — zero manual steps" {
     branch -> enrich: "yes" {style.font-size: 15}
   }
 
-  ollama: "Ollama\nllama3.2:3b" {style.font-size: 18}
-
-  postgres: "Postgres 16\ntable edits" {
-    shape: cylinder
-    style.font-size: 18
+  deps: "" {
+    grid-rows: 1
+    grid-gap: 80
+    style.stroke-width: 0
+    style.fill: transparent
+    ollama-init: "ollama-init\npull model, exit" {class: oneshot}
+    ollama: "Ollama\nllama3.2:3b" {style.font-size: 18}
+    postgres: "Postgres 16\ntable edits" {
+      shape: cylinder
+      style.font-size: 18
+    }
+    web: "web · read-only\n/api/edits · /api/stats" {style.font-size: 18}
+    ollama-init -> ollama: {class: wire}
   }
-
-  web: "web · read-only\n/api/edits · /api/stats" {style.font-size: 18}
-
-  ollama-init: "ollama-init\npull model, exit" {class: oneshot}
-
-  ollama-init -> ollama: {class: wire}
 
   connect.filter -> redpanda.filtered: "~12 ev/min\nkey: title" {style.font-size: 15}
   connect -> redpanda.deadletter: "anomalies" {class: wire}
   redpanda.filtered -> service.gate: "group triage\nat-least-once" {style.font-size: 15}
 
-  service.classify -> ollama: "chat" {style.font-size: 15}
-  service.enrich -> ollama
+  service.classify -> deps.ollama: "chat" {style.font-size: 15}
+  service.enrich -> deps.ollama
 
-  service -> postgres: "UPSERT on rc_id" {style.font-size: 15}
+  service -> deps.postgres: "UPSERT on rc_id" {style.font-size: 15}
   service -> redpanda.classified: "audit" {style.font-size: 15}
 
-  postgres -> web: "SELECT only" {style.font-size: 15}
+  deps.postgres -> deps.web: "SELECT only" {style.font-size: 15}
 }
 
 browser: "you\nlocalhost:8080" {
   shape: person
   style.font-size: 18
+  near: bottom-center
 }
 
 mediawiki: "MediaWiki\ncompare API" {
   class: external
   shape: cloud
+  near: bottom-right
 }
 
 wikimedia -> compose.connect.framing: "SSE · UA required" {style.font-size: 15}
 compose.service.enrich -> mediawiki
-compose.web -> browser
+compose.deps.web -> browser
