@@ -4,6 +4,12 @@ import type { ClassifiedMessage } from './types.js';
 
 export type PublishClassifiedFn = (msg: ClassifiedMessage) => Promise<void>;
 
+/**
+ * Best-effort audit publish, keyed by rc_id: retries 3x, then logs and
+ * returns normally — Postgres is the read model, so a lost audit record
+ * must never fail (and thus redeliver) the message. Consumers of the
+ * classified topic must tolerate duplicate rc_ids (at-least-once).
+ */
 export function createClassifiedPublisher(producer: Producer, topic: string): PublishClassifiedFn {
   return async function publishClassified(msg: ClassifiedMessage): Promise<void> {
     try {

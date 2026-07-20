@@ -2,6 +2,7 @@ import pg from 'pg';
 import { withRetry } from './retry.js';
 import type { EditRow } from './types.js';
 
+/** Infra failure signal — the consumer pauses on this (mirror of OllamaUnreachableError). */
 export class PgUnavailableError extends Error {
   constructor(message: string, options?: ErrorOptions) {
     super(message, options);
@@ -48,6 +49,14 @@ export interface Db {
   close: () => Promise<void>;
 }
 
+/**
+ * upsertEdit is the idempotency point: INSERT .. ON CONFLICT (rc_id) DO
+ * UPDATE, so at-least-once redelivery rewrites the same row (processed_at
+ * refreshed by the DB, not the caller). Retries 3x then wraps ANY failure
+ * as PgUnavailableError — a poisoned row is indistinguishable from an
+ * outage here; the schema's CHECK constraints make bad-data rejects
+ * unreachable in practice.
+ */
 export function createDb(databaseUrl: string): Db {
   const pool = new pg.Pool({ connectionString: databaseUrl });
 

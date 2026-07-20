@@ -8,6 +8,12 @@ export interface RetryOptions {
 
 const defaultSleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
+/**
+ * Exponential backoff: baseMs * 2^(attempt-1), capped at capMs, no jitter
+ * (single consumer — no thundering herd to break up). Rethrows the LAST
+ * error once attempts are exhausted; onAttempt fires between tries, not
+ * after the final failure.
+ */
 export async function withRetry<T>(fn: () => Promise<T>, opts: RetryOptions): Promise<T> {
   const sleep = opts.sleep ?? defaultSleep;
   let lastErr: unknown;

@@ -13,6 +13,11 @@ function toStringOr(raw: unknown, fallback: string): string {
   return typeof raw === 'string' ? raw : fallback;
 }
 
+/**
+ * Poison-pill boundary: null (skip the message) for non-JSON, non-object,
+ * or missing/invalid rc_id — never throws. rc_id is the only required
+ * field; everything else degrades to '' / null / false defaults.
+ */
 export function decodeFilteredEdit(value: Buffer | string | null | undefined): FilteredEdit | null {
   if (value == null) return null;
   const text = typeof value === 'string' ? value : value.toString('utf8');

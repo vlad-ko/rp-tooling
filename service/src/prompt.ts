@@ -12,6 +12,12 @@ const SYSTEM = [
   '{"label": "vandalism" | "substantive" | "trivia" | "unclear", "confidence": <number between 0 and 1>, "reason": "<one short sentence>"}',
 ].join('\n');
 
+/**
+ * The diffText parameter is the ONLY difference between pass llm-1 and
+ * llm-2 — enrichment is the same prompt plus the fetched diff. Missing
+ * comment renders as '(none)': absence is a signal, and a blank would
+ * invite the model to hallucinate one.
+ */
 export function buildClassifyMessages(edit: FilteredEdit, diffText?: string): ChatMessage[] {
   const delta =
     edit.length_old === null && edit.length_new === null
@@ -37,6 +43,10 @@ export function buildClassifyMessages(edit: FilteredEdit, diffText?: string): Ch
   ];
 }
 
+/**
+ * Cheapest self-correction: quote the model its own broken reply and demand
+ * a re-emit. No new evidence — this repairs FORMAT, never judgment.
+ */
 export function buildRepairMessages(dirtyOutput: string): ChatMessage[] {
   return [
     { role: 'system', content: SYSTEM },

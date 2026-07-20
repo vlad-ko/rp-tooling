@@ -1,5 +1,10 @@
 import { LABELS, type Classification, type Label } from './types.js';
 
+/**
+ * Forgives formatting (case, whitespace, surrounding quotes, trailing
+ * punctuation) but never meaning: anything outside the closed enum returns
+ * null — no fuzzy mapping of near-misses like "vandal" or "spam".
+ */
 export function normalizeLabel(raw: unknown): Label | null {
   if (typeof raw !== 'string') return null;
   let s = raw.trim().toLowerCase();
@@ -9,6 +14,7 @@ export function normalizeLabel(raw: unknown): Label | null {
   return (LABELS as readonly string[]).includes(s) ? (s as Label) : null;
 }
 
+/** Accepts numbers and numeric strings; clamps into [0, 1]; null otherwise. */
 function toConfidence(raw: unknown): number | null {
   let n: number;
   if (typeof raw === 'number') {
@@ -22,6 +28,10 @@ function toConfidence(raw: unknown): number | null {
   return Math.min(1, Math.max(0, n));
 }
 
+/**
+ * Null (never a partial result) when label or confidence is unusable;
+ * a missing reason alone does not reject — it defaults to ''.
+ */
 export function parseClassification(value: unknown): Classification | null {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
   const o = value as Record<string, unknown>;

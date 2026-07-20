@@ -28,11 +28,17 @@ type RoundResult =
   | { ok: true; classification: Classification }
   | { ok: false; lastRaw: string };
 
+/** Extraction + schema validation collapsed to one nullable: any failure at either layer is null. */
 function tryParse(raw: string): Classification | null {
   const extracted = extractJsonObject(raw);
   return extracted.ok ? parseClassification(extracted.value) : null;
 }
 
+/**
+ * Retries transport failures only (heartbeating before/between attempts so
+ * the group doesn't evict us during slow inference); dirty CONTENT is not
+ * retried here — that's classifyRound's repair step.
+ */
 async function chatWithRetry(messages: ChatMessage[], deps: PipelineDeps, cfg: Config): Promise<string> {
   return withRetry(
     async () => {
@@ -60,6 +66,11 @@ async function classifyRound(messages: ChatMessage[], deps: PipelineDeps, cfg: C
   return { ok: false, lastRaw: repaired };
 }
 
+/**
+ * Merges the original edit with the verdict — the row keeps BOTH (never
+ * let a response destroy its request). ''-valued optional fields become
+ * SQL NULLs here.
+ */
 function toRow(edit: FilteredEdit, c: Classification, meta: RowMeta): EditRow {
   return {
     rc_id: edit.rc_id,
@@ -86,6 +97,17 @@ function toRow(edit: FilteredEdit, c: Classification, meta: RowMeta): EditRow {
   };
 }
 
+/**
+ * The reasoning loop: heuristic gate -> classify (llm-1) -> parse/repair ->
+ * confidence < threshold ? one enrichment reclassify (llm-2) -> row.
+ * ALWAYS returns exactly one EditRow for content-level failures (label
+ * 'unclear' + error taxonomy: unparseable_after_repair,
+ * enrichment_skipped_no_revs, enrichment_fetch_failed,
+ * enrichment_reclassify_unparseable); throws ONLY on infra errors
+ * (OllamaUnreachableError) after retries exhaust — the consumer's cue to
+ * pause rather than record. Cost is capped: no pass-3 exists, so worst
+ * case is 4 chat calls (classify+repair, twice).
+ */
 export async function processEdit(edit: FilteredEdit, deps: PipelineDeps, cfg: Config): Promise<EditRow> {
   const gate = heuristicGate(edit, cfg.heuristicTinyDelta);
   if (gate.skip) {
