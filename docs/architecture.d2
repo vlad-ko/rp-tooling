@@ -1,5 +1,8 @@
 # rp-tooling architecture — regenerate the SVG with:
-#   d2 --theme 0 --dark-theme 200 --pad 20 docs/architecture.d2 docs/architecture.svg
+#   d2 --theme 0 --dark-theme 200 --pad 20 --scale 1 docs/architecture.d2 docs/architecture.svg
+#
+# --scale 1 is REQUIRED: without it d2 omits width/height on the outer <svg>
+# (viewBox only) and GitHub renders the file at the 300x150 <img> fallback size.
 
 direction: down
 
