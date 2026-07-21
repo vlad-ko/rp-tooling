@@ -14,8 +14,18 @@ describe('classify system prompt', () => {
     expect(system).toContain('knowledge may be out of date');
   });
 
-  it('tells the model a revert/undo/restore is a repair, not vandalism', () => {
+  it('tells the model a revert can be EITHER a repair or damage (not a blanket rule)', () => {
     expect(system).toMatch(/revert|undo|restore/);
-    expect(system).toMatch(/repair|fixing|not vandalism/);
+    expect(system).toMatch(/either|re-add|edit-war/);
+  });
+
+  it('gives concrete examples spanning the vandalism boundary', () => {
+    expect(system).toContain('example');
+    expect(system).toContain('hoax');
+    expect(system).toContain('spam');
+    // the bad-actor revert case: re-adding removed spam IS vandalism
+    expect(system).toMatch(/re-add|edit-war/);
+    // and unsourced additions are NOT vandalism
+    expect(system).toMatch(/without a (citation|source)/);
   });
 });
