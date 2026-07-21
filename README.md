@@ -121,6 +121,23 @@ dropped and bad data never crashes the pipeline.
 The web page at <http://localhost:8080> shows recent classified edits and
 label/pass counts, backed by `/api/edits` and `/api/stats`.
 
+**Logs** go to stdout and are read through Docker (no log files — the app
+follows the 12-factor "logs as event streams" convention). The reasoning
+service prints one line per triage decision, so you can watch the pipeline
+work live:
+
+```sh
+docker compose logs -f service
+# [triage] substantive 0.95 pass=llm-2 +enriched delta=+168 rc=2046560718 "Christianity in Pakistan"
+# [triage] trivia 0.90 pass=llm-1 delta=+44 rc=2046562895 "2026 in American soccer"
+# [triage] substantive 0.90 pass=llm-1 delta=+2076 rc=… "…" | size_label_override: trivia -> substantive
+```
+
+The line leads with the label (scan the left edge for `vandalism`), then
+confidence, which `pass` produced it, whether it was `+enriched`, the byte
+delta, the `rc_id`, and the page title; a trailing `| …` carries the error
+or override note when there is one.
+
 From the repo root, with the stack up:
 
 ```sh

@@ -119,6 +119,9 @@ services:
       OLLAMA_URL: http://ollama:11434
       OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2:3b}
       DATABASE_URL: postgres://${POSTGRES_USER:-rp}:${POSTGRES_PASSWORD:-rp}@postgres:5432/${POSTGRES_DB:-wiki}
+      # Topics are single-partition, so the partitioner choice is moot; silence
+      # kafkajs's startup warning about it to keep the decision logs readable.
+      KAFKAJS_NO_PARTITIONER_WARNING: "1"
     depends_on:
       redpanda:
         condition: service_healthy
