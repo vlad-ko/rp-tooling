@@ -114,6 +114,39 @@ describe('processEdit', () => {
     expect(row.error).toBeNull();
   });
 
+  it('revert comment forces enrichment even at confidence 0.9 (metadata describes the WRONG edit)', async () => {
+    const { deps, chatCalls, diffCalls } = makeDeps(
+      [clean('vandalism', 0.9), clean('substantive', 0.95)],
+      [diffOk],
+    );
+    const revert = makeEdit({
+      comment:
+        'Undid revision [[Special:Diff/1364133786|1364133786]] by [[Special:Contributions/~2026-28226-33|~2026-28226-33]] ([[User talk:~2026-28226-33|talk]]) unexplained removal of source',
+    });
+    const row = await processEdit(revert, deps, cfg);
+    expect(diffCalls.length).toBe(1);
+    expect(chatCalls.length).toBe(2);
+    expect(row.pass).toBe('llm-2');
+    expect(row.enriched).toBe(true);
+    expect(row.label).toBe('substantive');
+    expect(row.confidence).toBe(0.95);
+    expect(row.error).toBeNull();
+  });
+
+  it('revert with missing revs keeps pass-1 verdict with enrichment_skipped_no_revs', async () => {
+    const { deps, diffCalls } = makeDeps([clean('vandalism', 0.9)]);
+    const row = await processEdit(
+      makeEdit({ comment: 'rv unsourced additions', rev_old: null }),
+      deps,
+      cfg,
+    );
+    expect(diffCalls.length).toBe(0);
+    expect(row.pass).toBe('llm-1');
+    expect(row.label).toBe('vandalism');
+    expect(row.error).toBe('enrichment_skipped_no_revs');
+    expect(row.enriched).toBe(false);
+  });
+
   it('confidence 0.60 (at threshold): zero fetchDiff calls, stays llm-1', async () => {
     const { deps, diffCalls } = makeDeps([clean('trivia', 0.6)]);
     const row = await processEdit(makeEdit(), deps, cfg);
