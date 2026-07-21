@@ -111,6 +111,9 @@
     text-transform: uppercase; letter-spacing: 0.04em;
   }
   td.num { font-variant-numeric: tabular-nums; }
+  td.title {
+    max-width: 220px; white-space: normal; overflow-wrap: anywhere;
+  }
   td.reason {
     max-width: 280px; overflow: hidden; text-overflow: ellipsis;
     color: var(--secondary);
@@ -326,7 +329,7 @@
     }));
     tr.append(el("td", { className: "pass", textContent: edit.pass ?? "—" }));
 
-    const titleTd = el("td");
+    const titleTd = el("td", { className: "title" });
     if (edit.notify_url) {
       const a = el("a", {
         href: edit.notify_url,
