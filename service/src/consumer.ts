@@ -40,6 +40,23 @@ export function wireCrashExit(
   });
 }
 
+/**
+ * One greppable line summarizing a triage decision, for `docker compose logs
+ * -f service` (the rubric's "logs are useful"). Pure: the consumer does the
+ * actual logging. Leads with the label so a human can scan the left edge for
+ * `vandalism`; `| <note>` carries the error/override taxonomy when present.
+ */
+export function formatDecision(row: EditRow): string {
+  const conf = row.confidence.toFixed(2);
+  const delta =
+    row.byte_delta === null ? '?' : row.byte_delta > 0 ? `+${row.byte_delta}` : String(row.byte_delta);
+  const parts = [`[triage] ${row.label} ${conf} pass=${row.pass}`];
+  if (row.enriched) parts.push('+enriched');
+  parts.push(`delta=${delta}`, `rc=${row.rc_id}`, JSON.stringify(row.title));
+  const line = parts.join(' ');
+  return row.error === null ? line : `${line} | ${row.error}`;
+}
+
 /** Projects the row to the audit-topic shape (drops web-only fields; event_time '' when null). */
 export function toClassifiedMessage(row: EditRow): ClassifiedMessage {
   return {
@@ -95,6 +112,7 @@ export async function startConsumer(d: ConsumerDeps): Promise<void> {
         await heartbeat();
         await d.upsertEdit(row);
         await d.publishClassified(toClassifiedMessage(row));
+        console.log(formatDecision(row));
       } catch (err) {
         if (err instanceof OllamaUnreachableError || err instanceof PgUnavailableError) {
           console.warn(`[consumer] ${err.name}; pausing partition until dependency recovers`);
