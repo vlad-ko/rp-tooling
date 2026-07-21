@@ -70,4 +70,20 @@ describe('isRevert', () => {
     // "RV park" etc. — costs one diff fetch, never a wrong verdict.
     expect(isRevert('RV park section updated')).toBe(true);
   });
+
+  it('detects the live escape: rv behind a section-edit marker (rc_id 2046561136)', () => {
+    expect(isRevert('/* External links */ rv spammy external links')).toBe(true);
+  });
+
+  it('detects Undid revision behind a section-edit marker', () => {
+    expect(isRevert('/* Early life */ Undid revision [[Special:Diff/123|123]] by [[Special:Contributions/X|X]]')).toBe(true);
+  });
+
+  it('rejects a plain section edit without revert syntax', () => {
+    expect(isRevert('/* Career */ added dates')).toBe(false);
+  });
+
+  it('rejects a bare section marker', () => {
+    expect(isRevert('/* External links */')).toBe(false);
+  });
 });

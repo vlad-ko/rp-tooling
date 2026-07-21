@@ -15,6 +15,8 @@ export function shouldEnrich(confidence: number, threshold: number): boolean {
  * never a wrong verdict.
  */
 export function isRevert(comment: string): boolean {
-  const c = comment.trim().toLowerCase();
+  // MediaWiki prepends "/* Section name */" on section edits — the revert
+  // syntax follows the marker (live escape: issue #33).
+  const c = comment.replace(/^\/\*.*?\*\/\s*/, '').trim().toLowerCase();
   return c.startsWith('undid revision') || c.startsWith('revert') || /^rvv?\b/.test(c);
 }
