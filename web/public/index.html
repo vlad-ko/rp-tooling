@@ -151,7 +151,7 @@
       <thead>
         <tr>
           <th>Processed</th><th>Label</th><th>Conf</th><th>Pass</th>
-          <th>Title</th><th>Editor</th><th>Δ bytes</th><th>Reason</th>
+          <th>Title</th><th>Reason</th><th>Δ bytes</th><th>Editor</th>
         </tr>
       </thead>
       <tbody id="rows"></tbody>
@@ -328,7 +328,9 @@
     }
     tr.append(titleTd);
 
-    tr.append(el("td", { className: "editor", textContent: edit.editor ?? "—" }));
+    const reasonTd = el("td", { className: "reason", textContent: edit.reason ?? "" });
+    if (edit.reason) reasonTd.title = edit.reason;
+    tr.append(reasonTd);
 
     const delta = edit.byte_delta;
     tr.append(el("td", {
@@ -336,9 +338,7 @@
       textContent: delta == null ? "—" : (delta > 0 ? "+" + delta : String(delta)),
     }));
 
-    const reasonTd = el("td", { className: "reason", textContent: edit.reason ?? "" });
-    if (edit.reason) reasonTd.title = edit.reason;
-    tr.append(reasonTd);
+    tr.append(el("td", { className: "editor", textContent: edit.editor ?? "—" }));
 
     return tr;
   }
