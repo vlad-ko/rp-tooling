@@ -140,9 +140,15 @@ export async function processEdit(edit: FilteredEdit, deps: PipelineDeps, cfg: C
   let enriched = false;
   let error: string | null = null;
 
-  // Reverts enrich unconditionally: their comment describes the edit being
-  // undone, so pass-1 confidence is grounded in the WRONG edit's story.
-  if (shouldEnrich(result.confidence, cfg.confidenceThreshold) || isRevert(edit.comment)) {
+  // Reverts enrich unconditionally (their comment describes the WRONG edit),
+  // and so does any pass-1 'vandalism' verdict: metadata-only vandalism was
+  // ~6% precise against community reverts (#47), so we never accuse without
+  // looking at the actual diff first.
+  if (
+    shouldEnrich(result.confidence, cfg.confidenceThreshold) ||
+    isRevert(edit.comment) ||
+    result.label === 'vandalism'
+  ) {
     if (edit.rev_old === null || edit.rev_new === null) {
       error = 'enrichment_skipped_no_revs';
     } else {

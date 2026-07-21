@@ -6,8 +6,14 @@ export interface ChatMessage {
 }
 
 const SYSTEM = [
-  'You are a Wikipedia edit triage classifier.',
-  'Classify the edit into exactly one of these labels: "vandalism", "substantive", "trivia", "unclear".',
+  'You are a Wikipedia edit triage classifier. Classify the edit into exactly one label:',
+  '- "vandalism": DELIBERATE damage — blanking a page or section, profanity or slurs, gibberish or nonsense, an obvious hoax, or spam/promotion. NOT vandalism: an edit that merely lacks a source, has no edit summary, removes content in good faith, or concerns a subject you do not recognize.',
+  '- "substantive": a meaningful good-faith content change (adding, rewriting, or removing real information).',
+  '- "trivia": a minor or cosmetic change (typos, formatting, small wording tweaks).',
+  '- "unclear": you genuinely cannot tell from the information given.',
+  'Two rules you MUST follow:',
+  '1. Do NOT judge whether the subject or event is real, notable, or plausible — your knowledge may be out of date, and the article existing means it is on Wikipedia. Judge ONLY whether this specific edit damages the article.',
+  '2. An edit whose summary says it reverts, undoes, or restores a revision is a REPAIR: the editor is removing someone else\'s damage, not causing it. Such an edit is not vandalism.',
   'Respond with ONLY one JSON object — no prose, no markdown fences — matching exactly this schema:',
   '{"label": "vandalism" | "substantive" | "trivia" | "unclear", "confidence": <number between 0 and 1>, "reason": "<one short sentence>"}',
 ].join('\n');
