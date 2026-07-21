@@ -1,4 +1,4 @@
-import { shouldEnrich } from './branch.js';
+import { isRevert, shouldEnrich } from './branch.js';
 import { parseClassification } from './classification.js';
 import type { Config } from './config.js';
 import type { FetchDiffFn } from './enrich.js';
@@ -140,7 +140,9 @@ export async function processEdit(edit: FilteredEdit, deps: PipelineDeps, cfg: C
   let enriched = false;
   let error: string | null = null;
 
-  if (shouldEnrich(result.confidence, cfg.confidenceThreshold)) {
+  // Reverts enrich unconditionally: their comment describes the edit being
+  // undone, so pass-1 confidence is grounded in the WRONG edit's story.
+  if (shouldEnrich(result.confidence, cfg.confidenceThreshold) || isRevert(edit.comment)) {
     if (edit.rev_old === null || edit.rev_new === null) {
       error = 'enrichment_skipped_no_revs';
     } else {
