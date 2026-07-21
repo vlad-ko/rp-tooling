@@ -27,6 +27,34 @@ export function htmlToText(html: string): string {
   return decoded.replace(/\s+/g, ' ').trim();
 }
 
+function extractCells(html: string, lineClass: string): string[] {
+  const re = new RegExp(`<td[^>]*class="[^"]*${lineClass}[^"]*"[^>]*>([\\s\\S]*?)</td>`, 'g');
+  const out: string[] = [];
+  for (const m of html.matchAll(re)) {
+    const text = htmlToText(m[1] ?? '');
+    if (text) out.push(text);
+  }
+  return out;
+}
+
+/**
+ * Turns the MediaWiki compare HTML into a DIRECTION-PRESERVING summary. The
+ * add/remove direction lives in the `diff-deletedline` / `diff-addedline`
+ * classes; flattening all tags (as htmlToText alone does) throws that away and
+ * duplicates context, so the model can't tell a removal from an addition
+ * (issue #50 — a spam REMOVAL read as "added excessive external links"). Here
+ * removed and added lines are grouped and labelled so the model judges what
+ * the edit actually did; pure context is dropped.
+ */
+export function directionalDiff(html: string): string {
+  const removed = extractCells(html, 'diff-deletedline');
+  const added = extractCells(html, 'diff-addedline');
+  const parts: string[] = [];
+  if (removed.length > 0) parts.push('REMOVED lines:', ...removed);
+  if (added.length > 0) parts.push('ADDED lines:', ...added);
+  return parts.length > 0 ? parts.join('\n') : '(no textual changes in this diff)';
+}
+
 /** Hard cap on prompt size; the flag records that context was cut. */
 export function truncateDiff(text: string, maxChars: number): { text: string; truncated: boolean } {
   if (text.length <= maxChars) return { text, truncated: false };
