@@ -18,21 +18,36 @@ export interface OllamaClient {
   waitUntilReady: (timeoutMs: number) => Promise<void>;
 }
 
+// A readiness probe is a health check, not inference — it must fail fast so
+// the recovery poll (resumeWhenReady) can't itself hang on a wedged Ollama.
+const READINESS_PROBE_MS = 5000;
+
 /**
  * chat() posts to the native /api/chat with format:'json' (constrained
  * decoding — guarantees JSON syntax, NOT our schema) and returns the raw
  * content string, '' on shape surprises; throws OllamaUnreachableError on
- * transport/HTTP failures. Single-attempt by design — retries are the
- * caller's policy (pipeline.chatWithRetry).
+ * transport/HTTP failures AND on request timeout (requestTimeoutMs) — a
+ * wedged Ollama that never responds becomes an infra failure the consumer
+ * pauses on, rather than hanging forever. Single-attempt by design — retries
+ * are the caller's policy (pipeline.chatWithRetry). `fetchImpl` is injectable
+ * for tests; production uses the global fetch.
  */
-export function createOllamaClient(opts: { url: string; model: string }): OllamaClient {
+export function createOllamaClient(opts: {
+  url: string;
+  model: string;
+  requestTimeoutMs: number;
+  fetchImpl?: typeof fetch;
+}): OllamaClient {
+  const doFetch = opts.fetchImpl ?? fetch;
+
   async function chat(messages: ChatMessage[]): Promise<string> {
     let res: Response;
     try {
-      res = await fetch(`${opts.url}/api/chat`, {
+      res = await doFetch(`${opts.url}/api/chat`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ model: opts.model, messages, stream: false, format: 'json' }),
+        signal: AbortSignal.timeout(opts.requestTimeoutMs),
       });
     } catch (err) {
       throw new OllamaUnreachableError(`ollama unreachable at ${opts.url}: ${String(err)}`, {
@@ -56,7 +71,9 @@ export function createOllamaClient(opts: { url: string; model: string }): Ollama
 
   async function isReady(): Promise<boolean> {
     try {
-      const res = await fetch(`${opts.url}/api/tags`);
+      const res = await doFetch(`${opts.url}/api/tags`, {
+        signal: AbortSignal.timeout(READINESS_PROBE_MS),
+      });
       return res.ok;
     } catch {
       return false;

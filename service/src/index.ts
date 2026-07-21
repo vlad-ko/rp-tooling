@@ -8,7 +8,11 @@ import { createClassifiedPublisher } from './producer.js';
 
 async function main(): Promise<void> {
   const cfg = loadConfig();
-  const ollama = createOllamaClient({ url: cfg.ollamaUrl, model: cfg.ollamaModel });
+  const ollama = createOllamaClient({
+    url: cfg.ollamaUrl,
+    model: cfg.ollamaModel,
+    requestTimeoutMs: cfg.ollamaRequestTimeoutMs,
+  });
   const db = createDb(cfg.databaseUrl);
 
   console.log('[service] waiting for ollama and postgres to become ready');
