@@ -1,4 +1,4 @@
-import { extractCompareHtml, htmlToText, truncateDiff } from './diff.js';
+import { directionalDiff, extractCompareHtml, truncateDiff } from './diff.js';
 import type { EnrichmentContext } from './types.js';
 
 export type FetchDiffResult = EnrichmentContext | { error: string };
@@ -33,7 +33,7 @@ export function createDiffFetcher(opts: { timeoutMs: number; maxChars: number })
     }
     const html = extractCompareHtml(body);
     if (html === null) return { error: 'unexpected compare response shape' };
-    const { text, truncated } = truncateDiff(htmlToText(html), opts.maxChars);
+    const { text, truncated } = truncateDiff(directionalDiff(html), opts.maxChars);
     return { diffText: text, truncated, sourceUrl: url };
   }
 
