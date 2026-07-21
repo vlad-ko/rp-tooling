@@ -1,4 +1,4 @@
-import { exceedsTriviaGate, isRevert, shouldEnrich } from './branch.js';
+import { isRevert, reconcileLabelWithSize, shouldEnrich } from './branch.js';
 import { parseClassification } from './classification.js';
 import type { Config } from './config.js';
 import type { FetchDiffFn } from './enrich.js';
@@ -164,14 +164,20 @@ export async function processEdit(edit: FilteredEdit, deps: PipelineDeps, cfg: C
     }
   }
 
-  // Hard trivia gate: an LLM 'trivia' verdict on a non-trivial byte delta is
-  // definitionally incoherent — override to 'substantive' (issue #37). Runs
-  // AFTER enrichment, so a verdict the diff already moved off trivia is left
-  // alone. Heuristic-assigned trivia returned earlier and never reaches here.
-  if (exceedsTriviaGate(result.label, byteDelta(edit), cfg.triviaBytesGate)) {
-    const note = `trivia_gate_override: byte delta exceeds TRIVIA_BYTES_GATE (${cfg.triviaBytesGate})`;
+  // Byte count settles the trivia<->substantive magnitude axis: a verdict
+  // whose magnitude label is impossible for its delta is corrected to the
+  // opposite one (issue #39). Runs AFTER enrichment on the final verdict;
+  // the heuristic path returned earlier and is exempt.
+  const reconciled = reconcileLabelWithSize(
+    result.label,
+    byteDelta(edit),
+    cfg.substantiveMinBytes,
+    cfg.triviaMaxBytes,
+  );
+  if (reconciled !== result.label) {
+    const note = `size_label_override: ${result.label} -> ${reconciled} (|byte_delta| out of range for ${result.label})`;
     error = error === null ? note : `${error}; ${note}`;
-    result = { ...result, label: 'substantive' };
+    result = { ...result, label: reconciled };
   }
 
   return toRow(edit, result, { pass, enriched, error, model: cfg.ollamaModel, now: deps.now });

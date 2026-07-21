@@ -156,35 +156,45 @@ describe('processEdit', () => {
     expect(row.error).toBeNull();
   });
 
-  it('LLM trivia + large byte delta is hard-overridden to substantive (no extra fetch)', async () => {
+  it('trivia at/above the ceiling is corrected to substantive (no extra fetch)', async () => {
     const { deps, diffCalls } = makeDeps([clean('trivia', 0.9)]);
-    const bigEdit = makeEdit({ length_old: 1000, length_new: 3076 }); // +2076
+    const bigEdit = makeEdit({ length_old: 1000, length_new: 3076 }); // +2076 >= 2000
     const row = await processEdit(bigEdit, deps, cfg);
-    expect(diffCalls.length).toBe(0); // hard gate — deterministic, no model re-call
+    expect(diffCalls.length).toBe(0); // deterministic reconciliation, no model re-call
     expect(row.label).toBe('substantive');
     expect(row.pass).toBe('llm-1');
-    expect(row.error).toMatch(/^trivia_gate_override/);
+    expect(row.error).toMatch(/^size_label_override/);
   });
 
-  it('LLM trivia within the gate is left untouched', async () => {
-    const { deps, diffCalls } = makeDeps([clean('trivia', 0.9)]);
-    const smallEdit = makeEdit({ length_old: 1000, length_new: 1050 }); // +50, within the 100 gate
+  it('substantive below the floor is corrected to trivia', async () => {
+    const { deps, diffCalls } = makeDeps([clean('substantive', 0.9)]);
+    const smallEdit = makeEdit({ length_old: 1000, length_new: 1025 }); // +25 < 100
     const row = await processEdit(smallEdit, deps, cfg);
+    expect(diffCalls.length).toBe(0);
+    expect(row.label).toBe('trivia');
+    expect(row.pass).toBe('llm-1');
+    expect(row.error).toMatch(/^size_label_override/);
+  });
+
+  it('a middle-band trivia verdict is left to the model', async () => {
+    const { deps, diffCalls } = makeDeps([clean('trivia', 0.9)]);
+    const midEdit = makeEdit({ length_old: 1000, length_new: 1500 }); // +500, in [100, 2000)
+    const row = await processEdit(midEdit, deps, cfg);
     expect(diffCalls.length).toBe(0);
     expect(row.label).toBe('trivia');
     expect(row.error).toBeNull();
   });
 
-  it('bot-heuristic trivia is exempt from the byte gate', async () => {
+  it('bot-heuristic trivia is exempt from size reconciliation', async () => {
     const { deps, chatCalls } = makeDeps([]);
     const row = await processEdit(
-      makeEdit({ bot: true, length_old: 1000, length_new: 3000 }), // +2000
+      makeEdit({ bot: true, length_old: 1000, length_new: 4000 }), // +3000 >= 2000
       deps,
       cfg,
     );
     expect(chatCalls.length).toBe(0);
     expect(row.pass).toBe('heuristic');
-    expect(row.label).toBe('trivia'); // policy trivia survives the gate
+    expect(row.label).toBe('trivia'); // policy trivia survives
   });
 
   it('pass-2 wins unconditionally even at lower confidence', async () => {
