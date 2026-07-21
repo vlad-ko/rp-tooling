@@ -33,11 +33,6 @@ post-filter stream runs at roughly 12 events/min with the default
 
 ![Architecture diagram](docs/architecture.svg)
 
-The diagram source is [`docs/architecture.d2`](docs/architecture.d2)
-([D2](https://d2lang.com)); regenerate the SVG with
-`d2 --theme 0 --dark-theme 200 --pad 20 --scale 1 docs/architecture.d2 docs/architecture.svg`
-(`--scale 1` keeps explicit width/height on the SVG so GitHub renders it full-size).
-
 <details>
 <summary>Text version</summary>
 
