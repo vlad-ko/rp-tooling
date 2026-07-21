@@ -48,6 +48,20 @@ tests:
           metadata_equals:
             dlq: "true"
 
+  - name: non-edit log event without an id is deleted (policy), not dead-lettered
+    target_processors: 'pipeline.yaml#/pipeline/processors'
+    input_batch:
+      - content: 'data: {"$schema":"/mediawiki/recentchange/1.0.0","type":"log","bot":false,"log_action":"addlink","log_id":183044293,"title":"Some Page","meta":{"domain":"en.wikipedia.org","dt":"2026-07-20T15:00:00Z"}}'
+    output_batches: []
+
+  - name: payload missing type entirely is dead-lettered (that IS drift)
+    target_processors: 'pipeline.yaml#/pipeline/processors'
+    input_batch:
+      - content: 'data: {"bot":false,"namespace":0,"id":9,"title":"X","meta":{"domain":"en.wikipedia.org","dt":"2026-07-20T15:00:00Z"}}'
+    output_batches:
+      - - metadata_equals:
+            dlq: "true"
+
   - name: policy rejects (bot edit, tiny delta) are deleted, not dead-lettered
     target_processors: 'pipeline.yaml#/pipeline/processors'
     input_batch:

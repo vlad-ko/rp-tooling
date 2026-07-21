@@ -47,16 +47,22 @@ pipeline:
               deleted()
             }
 
-        # Stage 2 — structural validation. The filter below decides on these
-        # fields, so their ABSENCE means upstream schema drift, not a policy
-        # reject — dead-letter it. (`length`/`revision` stay optional: they are
-        # genuinely absent on some event kinds and project to null.)
+        # Stage 2 — structural validation, ORDERED so policy runs before shape
+        # (issue #29): non-edit event kinds (`log`, `categorize`, …) are normal
+        # firehose traffic that legitimately lacks edit fields like `id` —
+        # they are policy-deleted here, BEFORE the required-field check, so
+        # they can never pollute the DLQ. Only after an event claims to be an
+        # edit does a missing field mean upstream schema drift. (`length`/
+        # `revision` stay optional: absent on some edits, project to null.)
         - mapping: |
             root = if this.type() != "object" {
               throw("payload is not a JSON object")
-            } else if ["type", "bot", "namespace", "id", "title"].any(f -> !this.exists(f)) ||
-                !this.exists("meta.domain") {
-              throw("missing required field(s): " + (["type", "bot", "namespace", "id", "title", "meta.domain"].filter(f -> !this.exists(f))).join(", "))
+            } else if !this.exists("type") {
+              throw("missing required field(s): type")
+            } else if this.type != "edit" {
+              deleted()
+            } else if ["bot", "namespace", "id", "title"].any(f -> !this.exists(f)) || !this.exists("meta.domain") {
+              throw("missing required field(s): " + (["bot", "namespace", "id", "title", "meta.domain"].filter(f -> !this.exists(f))).join(", "))
             } else {
               this
             }
@@ -65,9 +71,9 @@ pipeline:
         # Everything dropped here is a VALID event we chose not to process;
         # deletion (not dead-lettering) is intentional — DLQ'ing the ~99.6%
         # policy-rejected firehose would just recreate it one topic over.
+        # (type != "edit" is handled in stage 2, ahead of field validation.)
         - mapping: |
-            root = if this.type != "edit" ||
-                this.bot != false ||
+            root = if this.bot != false ||
                 this.namespace != 0 ||
                 this.meta.domain.or("") != "en.wikipedia.org" ||
                 (this.length.new.or(0) - this.length.old.or(0)).abs() < ${FILTER_MIN_DELTA:25} {
