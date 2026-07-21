@@ -1,4 +1,4 @@
-import { isRevert, shouldEnrich } from './branch.js';
+import { exceedsTriviaGate, isRevert, shouldEnrich } from './branch.js';
 import { parseClassification } from './classification.js';
 import type { Config } from './config.js';
 import type { FetchDiffFn } from './enrich.js';
@@ -162,6 +162,16 @@ export async function processEdit(edit: FilteredEdit, deps: PipelineDeps, cfg: C
         }
       }
     }
+  }
+
+  // Hard trivia gate: an LLM 'trivia' verdict on a non-trivial byte delta is
+  // definitionally incoherent — override to 'substantive' (issue #37). Runs
+  // AFTER enrichment, so a verdict the diff already moved off trivia is left
+  // alone. Heuristic-assigned trivia returned earlier and never reaches here.
+  if (exceedsTriviaGate(result.label, byteDelta(edit), cfg.triviaBytesGate)) {
+    const note = `trivia_gate_override: byte delta exceeds TRIVIA_BYTES_GATE (${cfg.triviaBytesGate})`;
+    error = error === null ? note : `${error}; ${note}`;
+    result = { ...result, label: 'substantive' };
   }
 
   return toRow(edit, result, { pass, enriched, error, model: cfg.ollamaModel, now: deps.now });

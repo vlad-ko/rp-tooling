@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isRevert, shouldEnrich } from '../src/branch.js';
+import { exceedsTriviaGate, isRevert, shouldEnrich } from '../src/branch.js';
 
 describe('shouldEnrich', () => {
   it('enriches just below the threshold (0.59 vs 0.6)', () => {
@@ -112,5 +112,30 @@ describe('isRevert', () => {
 
   it('rejects a bare section marker (no revert syntax follows)', () => {
     expect(isRevert('/* External links */')).toBe(false);
+  });
+});
+
+describe('exceedsTriviaGate', () => {
+  it('flags a trivia verdict whose |delta| exceeds the gate (live specimen +2076)', () => {
+    expect(exceedsTriviaGate('trivia', 2076, 10)).toBe(true);
+  });
+
+  it('allows trivia exactly at the gate, flags one above', () => {
+    expect(exceedsTriviaGate('trivia', 10, 10)).toBe(false);
+    expect(exceedsTriviaGate('trivia', 11, 10)).toBe(true);
+  });
+
+  it('uses absolute value — a large negative delta is flagged too', () => {
+    expect(exceedsTriviaGate('trivia', -3082, 10)).toBe(true);
+  });
+
+  it('never flags non-trivia labels', () => {
+    expect(exceedsTriviaGate('substantive', 9999, 10)).toBe(false);
+    expect(exceedsTriviaGate('vandalism', 9999, 10)).toBe(false);
+    expect(exceedsTriviaGate('unclear', 9999, 10)).toBe(false);
+  });
+
+  it('does not flag when the delta is unknown (null)', () => {
+    expect(exceedsTriviaGate('trivia', null, 10)).toBe(false);
   });
 });
