@@ -298,7 +298,19 @@
   function renderRow(edit) {
     const tr = el("tr");
 
-    tr.append(el("td", { className: "time", textContent: fmtTime(edit.processed_at) }));
+    const timeTd = el("td", { className: "time" });
+    const when = edit.processed_at ? new Date(edit.processed_at) : null;
+    if (!when || isNaN(when)) {
+      timeTd.textContent = "—";
+    } else {
+      // Date and time on separate lines to save horizontal space.
+      timeTd.append(
+        document.createTextNode(when.toLocaleDateString()),
+        el("br"),
+        document.createTextNode(when.toLocaleTimeString()),
+      );
+    }
+    tr.append(timeTd);
 
     const labelTd = el("td");
     if (edit.label) {
