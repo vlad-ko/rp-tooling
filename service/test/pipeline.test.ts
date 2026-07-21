@@ -79,13 +79,30 @@ describe('processEdit', () => {
 
   it('dirty then clean: 2 chat calls, second uses the repair prompt', async () => {
     const dirty = 'I cannot really commit to a structured answer here, sorry.';
-    const { deps, chatCalls } = makeDeps([dirty, clean('vandalism', 0.8)]);
+    const { deps, chatCalls } = makeDeps([dirty, clean('substantive', 0.8)]);
     const row = await processEdit(makeEdit(), deps, cfg);
     expect(chatCalls.length).toBe(2);
     expect(JSON.stringify(chatCalls[1])).toContain(dirty);
-    expect(row.label).toBe('vandalism');
+    expect(row.label).toBe('substantive');
     expect(row.pass).toBe('llm-1');
     expect(row.error).toBeNull();
+  });
+
+  it('pass-1 vandalism forces enrichment even at high confidence (metadata-only vandalism is unreliable)', async () => {
+    const { deps, diffCalls } = makeDeps([clean('vandalism', 0.9), clean('substantive', 0.8)], [diffOk]);
+    const row = await processEdit(makeEdit(), deps, cfg); // non-revert, mid-band delta
+    expect(diffCalls.length).toBe(1); // forced the diff fetch despite 0.9 confidence
+    expect(row.pass).toBe('llm-2');
+    expect(row.enriched).toBe(true);
+    expect(row.label).toBe('substantive'); // the diff-informed pass-2 revised it
+  });
+
+  it('pass-1 vandalism with the diff confirming vandalism stays vandalism (now evidence-backed)', async () => {
+    const { deps, diffCalls } = makeDeps([clean('vandalism', 0.9), clean('vandalism', 0.95)], [diffOk]);
+    const row = await processEdit(makeEdit(), deps, cfg);
+    expect(diffCalls.length).toBe(1);
+    expect(row.pass).toBe('llm-2');
+    expect(row.label).toBe('vandalism');
   });
 
   it('dirty twice: falls back to unclear/0 with unparseable_after_repair error, exactly 2 calls', async () => {

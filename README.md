@@ -105,6 +105,14 @@ dropped and bad data never crashes the pipeline.
   wrong actor — the model once labeled an anti-vandalism repair `vandalism`
   at 0.9. Known-unreliable metadata is routed to evidence, same as low
   confidence.
+- **`vandalism` verdicts always enrich**, whatever the confidence: vandalism
+  is a judgment about *content*, but pass-1 sees only metadata — measured
+  against Wikipedia's own reverts, metadata-only `vandalism` was right only
+  ~6% of the time, so the service never accuses without fetching the real
+  diff first. The system prompt also defines vandalism narrowly (deliberate
+  damage — not unsourced additions, missing summaries, or unfamiliar
+  subjects) and forbids judging whether a topic is "real" (the model's
+  knowledge may predate the event).
 - All writes are **UPSERTs keyed on `rc_id`**, so the broker's at-least-once
   delivery is safe: redelivery just rewrites the same row.
 - **Infra failure ≠ crash**: if Ollama or Postgres goes down, the consumer
