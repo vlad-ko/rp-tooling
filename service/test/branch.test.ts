@@ -71,19 +71,37 @@ describe('isRevert', () => {
     expect(isRevert('RV park section updated')).toBe(true);
   });
 
+  // Named regression anchor: the exact live comment that escaped the first
+  // revert fix because MediaWiki prepends a section-edit marker (issue #33).
   it('detects the live escape: rv behind a section-edit marker (rc_id 2046561136)', () => {
     expect(isRevert('/* External links */ rv spammy external links')).toBe(true);
   });
 
-  it('detects Undid revision behind a section-edit marker', () => {
-    expect(isRevert('/* Early life */ Undid revision [[Special:Diff/123|123]] by [[Special:Contributions/X|X]]')).toBe(true);
-  });
+  // The section-edit marker MUST be transparent to revert detection: for any
+  // comment, prepending "/* Section */ " never changes the verdict. This
+  // tests the strip-then-match MECHANISM, not the specimens — a hardcoded
+  // section name or a dropped strip fails it, and it covers combinations no
+  // specimen exercised (e.g. a section-scoped Huggle "Reverted edits by…").
+  const MARKERS = ['/* External links */ ', '/* Early life */ ', '/* References & notes */ '];
+  const COMMENTS = [
+    'Undid revision [[Special:Diff/1|1]] by [[Special:Contributions/X|X]]',
+    'Reverted edits by [[Special:Contributions/X|X]] to last version by Alice',
+    'Reverted 2 edits by [[Special:Contributions/X|X]] (HG) (3.4.14)',
+    'rv spammy external links',
+    'rvv',
+    'expanded the career section', // non-revert
+    'added two citations', // non-revert
+    '', // empty
+  ];
+  for (const marker of MARKERS) {
+    for (const comment of COMMENTS) {
+      it(`section marker is transparent: "${marker}" + "${comment}"`, () => {
+        expect(isRevert(marker + comment)).toBe(isRevert(comment));
+      });
+    }
+  }
 
-  it('rejects a plain section edit without revert syntax', () => {
-    expect(isRevert('/* Career */ added dates')).toBe(false);
-  });
-
-  it('rejects a bare section marker', () => {
+  it('rejects a bare section marker (no revert syntax follows)', () => {
     expect(isRevert('/* External links */')).toBe(false);
   });
 });
