@@ -10,6 +10,7 @@ export interface Config {
   confidenceThreshold: number;
   diffMaxChars: number;
   heuristicTinyDelta: number;
+  triviaBytesGate: number;
   compareTimeoutMs: number;
   maxErrorSnippet: number;
   databaseUrl: string;
@@ -44,6 +45,7 @@ export function loadConfig(env: Env = process.env): Readonly<Config> {
     confidenceThreshold: numberOr(env['CONFIDENCE_THRESHOLD'], 0.6),
     diffMaxChars: numberOr(env['DIFF_MAX_CHARS'], 4000),
     heuristicTinyDelta: numberOr(env['HEURISTIC_TINY_DELTA'], 5),
+    triviaBytesGate: numberOr(env['TRIVIA_BYTES_GATE'], 100),
     compareTimeoutMs: numberOr(env['COMPARE_TIMEOUT_MS'], 5000),
     maxErrorSnippet: numberOr(env['MAX_ERROR_SNIPPET'], 500),
     databaseUrl: env['DATABASE_URL'] ?? 'postgres://postgres:postgres@postgres:5432/triage',

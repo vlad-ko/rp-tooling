@@ -148,12 +148,43 @@ describe('processEdit', () => {
   });
 
   it('confidence 0.60 (at threshold): zero fetchDiff calls, stays llm-1', async () => {
-    const { deps, diffCalls } = makeDeps([clean('trivia', 0.6)]);
+    const { deps, diffCalls } = makeDeps([clean('substantive', 0.6)]);
     const row = await processEdit(makeEdit(), deps, cfg);
     expect(diffCalls.length).toBe(0);
     expect(row.pass).toBe('llm-1');
     expect(row.enriched).toBe(false);
     expect(row.error).toBeNull();
+  });
+
+  it('LLM trivia + large byte delta is hard-overridden to substantive (no extra fetch)', async () => {
+    const { deps, diffCalls } = makeDeps([clean('trivia', 0.9)]);
+    const bigEdit = makeEdit({ length_old: 1000, length_new: 3076 }); // +2076
+    const row = await processEdit(bigEdit, deps, cfg);
+    expect(diffCalls.length).toBe(0); // hard gate — deterministic, no model re-call
+    expect(row.label).toBe('substantive');
+    expect(row.pass).toBe('llm-1');
+    expect(row.error).toMatch(/^trivia_gate_override/);
+  });
+
+  it('LLM trivia within the gate is left untouched', async () => {
+    const { deps, diffCalls } = makeDeps([clean('trivia', 0.9)]);
+    const smallEdit = makeEdit({ length_old: 1000, length_new: 1050 }); // +50, within the 100 gate
+    const row = await processEdit(smallEdit, deps, cfg);
+    expect(diffCalls.length).toBe(0);
+    expect(row.label).toBe('trivia');
+    expect(row.error).toBeNull();
+  });
+
+  it('bot-heuristic trivia is exempt from the byte gate', async () => {
+    const { deps, chatCalls } = makeDeps([]);
+    const row = await processEdit(
+      makeEdit({ bot: true, length_old: 1000, length_new: 3000 }), // +2000
+      deps,
+      cfg,
+    );
+    expect(chatCalls.length).toBe(0);
+    expect(row.pass).toBe('heuristic');
+    expect(row.label).toBe('trivia'); // policy trivia survives the gate
   });
 
   it('pass-2 wins unconditionally even at lower confidence', async () => {
@@ -178,11 +209,11 @@ describe('processEdit', () => {
   });
 
   it('fetch failure keeps the pass-1 result with enrichment_fetch_failed error', async () => {
-    const { deps, chatCalls } = makeDeps([clean('trivia', 0.4)], [{ error: 'timeout after 5000ms' }]);
+    const { deps, chatCalls } = makeDeps([clean('substantive', 0.4)], [{ error: 'timeout after 5000ms' }]);
     const row = await processEdit(makeEdit(), deps, cfg);
     expect(chatCalls.length).toBe(1);
     expect(row.pass).toBe('llm-1');
-    expect(row.label).toBe('trivia');
+    expect(row.label).toBe('substantive');
     expect(row.confidence).toBe(0.4);
     expect(row.enriched).toBe(false);
     expect(row.error).toMatch(/^enrichment_fetch_failed/);
@@ -190,7 +221,7 @@ describe('processEdit', () => {
   });
 
   it('missing revs skips enrichment with enrichment_skipped_no_revs error', async () => {
-    const { deps, diffCalls } = makeDeps([clean('trivia', 0.4)]);
+    const { deps, diffCalls } = makeDeps([clean('substantive', 0.4)]);
     const row = await processEdit(makeEdit({ rev_old: null }), deps, cfg);
     expect(diffCalls.length).toBe(0);
     expect(row.pass).toBe('llm-1');
@@ -200,13 +231,13 @@ describe('processEdit', () => {
 
   it('unparseable pass-2 keeps pass-1 with enrichment_reclassify_unparseable error', async () => {
     const { deps, chatCalls } = makeDeps(
-      [clean('trivia', 0.5), 'garbage', 'more garbage'],
+      [clean('substantive', 0.5), 'garbage', 'more garbage'],
       [diffOk],
     );
     const row = await processEdit(makeEdit(), deps, cfg);
     expect(chatCalls.length).toBe(3);
     expect(row.pass).toBe('llm-1');
-    expect(row.label).toBe('trivia');
+    expect(row.label).toBe('substantive');
     expect(row.confidence).toBe(0.5);
     expect(row.enriched).toBe(false);
     expect(row.error).toBe('enrichment_reclassify_unparseable');
