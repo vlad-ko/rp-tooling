@@ -34,25 +34,39 @@ export interface EditRow {
   processed_at: Date | null;
 }
 
+export interface EditsQuery {
+  label: Label | null;
+  search: string | null;
+  limit: number;
+  offset: number;
+}
+
+export interface EditsPage {
+  rows: EditRow[];
+  hasMore: boolean;
+}
+
 /**
- * Newest-first by processed_at. label null = all labels (the $1 IS NULL OR
- * trick keeps it one query/plan). Caller validates limit; SELECT-only.
+ * Newest-first by processed_at. The `$n IS NULL OR ...` guards keep label and
+ * search optional in a single query/plan; search is a parameterized ILIKE
+ * substring match (never string-concatenated). Fetches limit+1 rows to derive
+ * hasMore without a separate COUNT. Caller validates limit/offset; SELECT-only.
  */
-export async function recentEdits(
-  label: Label | null,
-  limit: number,
-): Promise<EditRow[]> {
+export async function recentEdits(opts: EditsQuery): Promise<EditsPage> {
+  const { label, search, limit, offset } = opts;
   const { rows } = await pool.query<EditRow>(
     `SELECT rc_id, title, title_url, editor, comment, is_bot, is_minor,
             byte_delta, notify_url, domain, event_time,
             label, confidence, reason, pass, processed_at
        FROM edits
-      WHERE $1::text IS NULL OR label = $1
+      WHERE ($1::text IS NULL OR label = $1)
+        AND ($2::text IS NULL OR title ILIKE '%' || $2 || '%')
       ORDER BY processed_at DESC
-      LIMIT $2`,
-    [label, limit],
+      LIMIT $3 OFFSET $4`,
+    [label, search, limit + 1, offset],
   );
-  return rows;
+  const hasMore = rows.length > limit;
+  return { rows: hasMore ? rows.slice(0, limit) : rows, hasMore };
 }
 
 export interface Stats {
