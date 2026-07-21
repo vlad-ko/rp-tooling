@@ -35,6 +35,19 @@
   main { max-width: 1100px; margin: 0 auto; padding: 24px 20px 48px; }
   header h1 { margin: 0 0 12px; font-size: 20px; font-weight: 650; }
 
+  #banner {
+    display: none;
+    padding: 11px 14px; margin-bottom: 16px;
+    border-radius: 8px;
+    background: #c22a1f; color: #fff;
+    border: 1px solid #7f1d1d;
+    font-size: 13px; font-weight: 600; line-height: 1.4;
+  }
+  @media (prefers-color-scheme: dark) {
+    #banner { background: #e0483c; border-color: #f08a80; color: #1a0000; }
+  }
+  #banner.show { display: block; }
+
   #stats {
     display: flex; flex-wrap: wrap; gap: 8px 20px;
     padding: 10px 14px; margin-bottom: 16px;
@@ -56,6 +69,29 @@
     color: var(--page);
     background: var(--text);
     border-color: var(--text);
+  }
+
+  #toolbar {
+    display: flex; flex-wrap: wrap; align-items: center;
+    justify-content: space-between; gap: 10px; margin-bottom: 16px;
+  }
+  #search {
+    font: inherit; font-size: 13px;
+    color: var(--text); background: var(--surface);
+    border: 1px solid var(--hairline); border-radius: 999px;
+    padding: 6px 14px; min-width: 220px; flex: 1 1 220px; max-width: 360px;
+  }
+  #pager { display: flex; align-items: center; gap: 8px; }
+  #pager button {
+    font: inherit; font-size: 13px; cursor: pointer;
+    color: var(--secondary); background: var(--surface);
+    border: 1px solid var(--hairline); border-radius: 999px;
+    padding: 5px 14px;
+  }
+  #pager button:disabled { opacity: 0.4; cursor: default; }
+  #pageInfo {
+    color: var(--secondary); font-size: 13px;
+    font-variant-numeric: tabular-nums; min-width: 72px; text-align: center;
   }
 
   .table-wrap {
@@ -91,12 +127,24 @@
 </head>
 <body>
 <main>
+  <div id="banner" role="alert"></div>
+
   <header>
     <h1>wiki edit triage</h1>
     <div id="stats">loading…</div>
   </header>
 
   <div id="filters"></div>
+
+  <div id="toolbar">
+    <input id="search" type="search" placeholder="Search titles…"
+           autocomplete="off" spellcheck="false" aria-label="Search titles">
+    <div id="pager">
+      <button id="prev" type="button">‹ Prev</button>
+      <span id="pageInfo"></span>
+      <button id="next" type="button">Next ›</button>
+    </div>
+  </div>
 
   <div class="table-wrap">
     <table>
@@ -122,12 +170,27 @@
     trivia: "#898781",
     unclear: "#eda100",
   };
-  let activeLabel = null; // null = All
+  const STALE_AFTER_MS = 120000; // 2 min with no new classifications = stalled
+  const PAGE_SIZE = 50;
 
+  let activeLabel = null; // null = All
+  let searchQuery = "";
+  let offset = 0;
+
+  // banner inputs, refreshed on every poll
+  let statsError = false;
+  let editsError = false;
+  let lastProcessedAt = null;
+
+  const bannerEl = document.getElementById("banner");
   const statsEl = document.getElementById("stats");
   const filtersEl = document.getElementById("filters");
   const rowsEl = document.getElementById("rows");
   const emptyEl = document.getElementById("empty");
+  const searchEl = document.getElementById("search");
+  const prevEl = document.getElementById("prev");
+  const nextEl = document.getElementById("next");
+  const pageInfoEl = document.getElementById("pageInfo");
 
   function el(tag, props) {
     const node = document.createElement(tag);
@@ -147,6 +210,27 @@
     return isNaN(d) ? "—" : d.toLocaleString();
   }
 
+  // ---- health banner -------------------------------------------------------
+  // Recomputed after every poll of either endpoint. Error state wins over
+  // staleness; auto-clears once data is reachable and fresh again. Static
+  // strings, but set via textContent to keep the no-innerHTML invariant.
+  function updateBanner() {
+    let msg = "";
+    if (statsError || editsError) {
+      msg = "⚠ Cannot reach the API — the web service or database may be down.";
+    } else if (lastProcessedAt) {
+      const age = Date.now() - new Date(lastProcessedAt).getTime();
+      if (age > STALE_AFTER_MS) {
+        const mins = Math.round(age / 60000);
+        msg = "⚠ No new classifications in the last " + mins +
+          " min — the ingest → reasoning pipeline may be stalled " +
+          "(check the connect and service containers).";
+      }
+    }
+    bannerEl.textContent = msg;
+    bannerEl.classList.toggle("show", msg !== "");
+  }
+
   // ---- filters -------------------------------------------------------------
   function renderFilters() {
     filtersEl.replaceChildren();
@@ -159,6 +243,7 @@
       btn.append(document.createTextNode(label ?? "All"));
       btn.addEventListener("click", () => {
         activeLabel = label;
+        offset = 0; // new filter starts at the first page
         renderFilters();
         refreshEdits();
       });
@@ -170,8 +255,10 @@
   async function refreshStats() {
     try {
       const res = await fetch("/api/stats");
-      if (!res.ok) return;
+      if (!res.ok) { statsError = true; updateBanner(); return; }
       const s = await res.json();
+      statsError = false;
+      lastProcessedAt = s.last_processed_at ?? null;
 
       statsEl.replaceChildren();
       const total = el("span");
@@ -198,8 +285,10 @@
         el("b", { textContent: fmtTime(s.last_processed_at) }),
       );
       statsEl.append(last);
+      updateBanner();
     } catch {
-      /* transient; next poll retries */
+      statsError = true;
+      updateBanner();
     }
   }
 
@@ -254,21 +343,67 @@
     return tr;
   }
 
-  async function refreshEdits() {
-    const requested = activeLabel;
-    try {
-      const params = new URLSearchParams();
-      if (requested) params.set("label", requested);
-      const res = await fetch("/api/edits?" + params);
-      if (!res.ok) return;
-      const body = await res.json();
-      if (requested !== activeLabel) return; // stale response, filter changed
-      rowsEl.replaceChildren(...body.edits.map(renderRow));
-      emptyEl.hidden = body.edits.length > 0;
-    } catch {
-      /* transient; next poll retries */
+  function updatePager(edits, hasMore) {
+    prevEl.disabled = offset <= 0;
+    nextEl.disabled = !hasMore;
+    if (edits.length === 0) {
+      pageInfoEl.textContent = offset > 0 ? "—" : "0 results";
+    } else {
+      pageInfoEl.textContent = (offset + 1) + "–" + (offset + edits.length);
     }
   }
+
+  async function refreshEdits() {
+    // Capture the full view identity; a slow response for a stale
+    // query/label/page must not overwrite a newer view.
+    const reqLabel = activeLabel;
+    const reqQuery = searchQuery;
+    const reqOffset = offset;
+    try {
+      const params = new URLSearchParams();
+      if (reqLabel) params.set("label", reqLabel);
+      if (reqQuery) params.set("q", reqQuery);
+      params.set("limit", String(PAGE_SIZE));
+      params.set("offset", String(reqOffset));
+      const res = await fetch("/api/edits?" + params);
+      if (!res.ok) { editsError = true; updateBanner(); return; }
+      const body = await res.json();
+      editsError = false;
+      updateBanner();
+      if (reqLabel !== activeLabel || reqQuery !== searchQuery || reqOffset !== offset) {
+        return; // stale response, the view moved on
+      }
+      const edits = body.edits ?? [];
+      rowsEl.replaceChildren(...edits.map(renderRow));
+      emptyEl.hidden = edits.length > 0;
+      updatePager(edits, Boolean(body.hasMore));
+    } catch {
+      editsError = true;
+      updateBanner();
+    }
+  }
+
+  // ---- search + pagination wiring -----------------------------------------
+  let searchTimer = null;
+  searchEl.addEventListener("input", () => {
+    if (searchTimer) clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => {
+      searchQuery = searchEl.value;
+      offset = 0; // new query starts at the first page
+      refreshEdits();
+    }, 300);
+  });
+
+  prevEl.addEventListener("click", () => {
+    if (offset <= 0) return;
+    offset = Math.max(0, offset - PAGE_SIZE);
+    refreshEdits();
+  });
+  nextEl.addEventListener("click", () => {
+    if (nextEl.disabled) return;
+    offset += PAGE_SIZE;
+    refreshEdits();
+  });
 
   renderFilters();
   refreshStats();
