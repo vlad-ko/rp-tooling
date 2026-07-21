@@ -9,14 +9,28 @@ export function shouldEnrich(confidence: number, threshold: number): boolean {
 }
 
 /**
- * Hard coherence gate (issue #37): 'trivia' means a negligible change, so an
- * LLM trivia verdict cannot coexist with a byte delta beyond the gate. The
- * mirror of the heuristic-gate trivia FLOOR. Only meaningful for LLM verdicts
- * — heuristic-assigned trivia (bot / tiny-minor) is policy and exempt. Null
- * delta (both lengths absent) is unprovable, so not flagged.
+ * Byte count owns the MAGNITUDE axis (trivia = small change, substantive =
+ * large change) exactly; the LLM owns the QUALITY axis (vandalism / unclear),
+ * which is size-independent. So a verdict whose magnitude label is impossible
+ * for its byte delta is corrected to the opposite magnitude label — the byte
+ * count ELIMINATES the wrong label rather than the LLM guessing it (issue #39):
+ *   |delta| < substantiveMinBytes  ⇒ 'substantive' impossible → 'trivia'
+ *   |delta| >= triviaMaxBytes      ⇒ 'trivia' impossible      → 'substantive'
+ * Between the bounds both are plausible, so the LLM's verdict stands.
+ * 'vandalism' / 'unclear' are never touched (quality axis). Null delta (both
+ * lengths absent) is unprovable, so the label is left unchanged.
  */
-export function exceedsTriviaGate(label: Label, byteDelta: number | null, gate: number): boolean {
-  return label === 'trivia' && byteDelta !== null && Math.abs(byteDelta) > gate;
+export function reconcileLabelWithSize(
+  label: Label,
+  byteDelta: number | null,
+  substantiveMinBytes: number,
+  triviaMaxBytes: number,
+): Label {
+  if (byteDelta === null) return label;
+  const magnitude = Math.abs(byteDelta);
+  if (label === 'substantive' && magnitude < substantiveMinBytes) return 'trivia';
+  if (label === 'trivia' && magnitude >= triviaMaxBytes) return 'substantive';
+  return label;
 }
 
 /**

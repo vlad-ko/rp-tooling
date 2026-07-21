@@ -88,13 +88,17 @@ dropped and bad data never crashes the pipeline.
   pass: the service fetches the real diff from the MediaWiki compare API and
   re-classifies with that context. The pass-2 verdict wins unconditionally —
   its confidence never triggers a pass-3.
-- **Trivia has a hard byte ceiling** (`TRIVIA_BYTES_GATE`, default 100): an
-  LLM `trivia` verdict whose `|byte delta|` exceeds the gate is definitionally
-  incoherent (trivia means a negligible change) and is overridden to
-  `substantive`, with `trivia_gate_override` recorded in `error`.
-  Bot/tiny-minor trivia from the heuristic gate is exempt. Note the gate is
-  only meaningful above `FILTER_MIN_DELTA` (25) — below it, everything is
-  already filtered out, so a gate ≤ 25 would abolish LLM `trivia` entirely.
+- **Byte count settles the `trivia`↔`substantive` magnitude axis.** That
+  distinction is about *size*, which the byte delta measures exactly, so the
+  model isn't trusted with it at the extremes — a verdict whose magnitude
+  label is impossible for its delta is corrected to the opposite one, with
+  `size_label_override` recorded in `error`. `|delta| < SUBSTANTIVE_MIN_BYTES`
+  (100) can't be `substantive` → `trivia`; `|delta| >= TRIVIA_MAX_BYTES`
+  (2000) can't be `trivia` → `substantive`. Between the bounds both are
+  plausible and the model's call stands. `vandalism` and `unclear` are
+  size-independent (the quality axis) and never touched; heuristic trivia is
+  exempt. (With `FILTER_MIN_DELTA` at 25, `substantive` effectively requires
+  ≥ 100 bytes — small edits, however meaningful, triage as `trivia`.)
 - **Revert edits enrich unconditionally**, whatever pass-1's confidence: a
   revert's comment ("Undid revision …") describes the edit *being undone*,
   so metadata-only classification attributes the quoted misbehavior to the
@@ -173,7 +177,8 @@ override. Knobs read by `docker-compose.yml`:
 The service reads further knobs from its own environment with defaults in
 `service/src/config.ts` (set them on the `service` container in
 `docker-compose.yml` to override): `CONFIDENCE_THRESHOLD` (0.6),
-`HEURISTIC_TINY_DELTA` (5), `TRIVIA_BYTES_GATE` (100), `OLLAMA_RETRIES` (5),
+`HEURISTIC_TINY_DELTA` (5), `SUBSTANTIVE_MIN_BYTES` (100),
+`TRIVIA_MAX_BYTES` (2000), `OLLAMA_RETRIES` (5),
 `OLLAMA_STARTUP_TIMEOUT_MS` (180000), `DIFF_MAX_CHARS` (4000),
 `COMPARE_TIMEOUT_MS` (5000), `MAX_ERROR_SNIPPET` (500).
 

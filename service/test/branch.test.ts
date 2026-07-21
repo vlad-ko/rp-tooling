@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { exceedsTriviaGate, isRevert, shouldEnrich } from '../src/branch.js';
+import { isRevert, reconcileLabelWithSize, shouldEnrich } from '../src/branch.js';
 
 describe('shouldEnrich', () => {
   it('enriches just below the threshold (0.59 vs 0.6)', () => {
@@ -115,27 +115,47 @@ describe('isRevert', () => {
   });
 });
 
-describe('exceedsTriviaGate', () => {
-  it('flags a trivia verdict whose |delta| exceeds the gate (live specimen +2076)', () => {
-    expect(exceedsTriviaGate('trivia', 2076, 10)).toBe(true);
+describe('reconcileLabelWithSize', () => {
+  const SUB_MIN = 100;
+  const TRIV_MAX = 2000;
+
+  it('corrects a small substantive verdict to trivia (below the substantive floor)', () => {
+    expect(reconcileLabelWithSize('substantive', 25, SUB_MIN, TRIV_MAX)).toBe('trivia');
+    expect(reconcileLabelWithSize('substantive', 99, SUB_MIN, TRIV_MAX)).toBe('trivia');
   });
 
-  it('allows trivia exactly at the gate, flags one above', () => {
-    expect(exceedsTriviaGate('trivia', 10, 10)).toBe(false);
-    expect(exceedsTriviaGate('trivia', 11, 10)).toBe(true);
+  it('keeps substantive exactly at the floor', () => {
+    expect(reconcileLabelWithSize('substantive', 100, SUB_MIN, TRIV_MAX)).toBe('substantive');
   });
 
-  it('uses absolute value — a large negative delta is flagged too', () => {
-    expect(exceedsTriviaGate('trivia', -3082, 10)).toBe(true);
+  it('corrects a large trivia verdict to substantive (at/above the trivia ceiling)', () => {
+    expect(reconcileLabelWithSize('trivia', 2000, SUB_MIN, TRIV_MAX)).toBe('substantive');
+    expect(reconcileLabelWithSize('trivia', 2076, SUB_MIN, TRIV_MAX)).toBe('substantive');
   });
 
-  it('never flags non-trivia labels', () => {
-    expect(exceedsTriviaGate('substantive', 9999, 10)).toBe(false);
-    expect(exceedsTriviaGate('vandalism', 9999, 10)).toBe(false);
-    expect(exceedsTriviaGate('unclear', 9999, 10)).toBe(false);
+  it('keeps trivia just below the ceiling', () => {
+    expect(reconcileLabelWithSize('trivia', 1999, SUB_MIN, TRIV_MAX)).toBe('trivia');
   });
 
-  it('does not flag when the delta is unknown (null)', () => {
-    expect(exceedsTriviaGate('trivia', null, 10)).toBe(false);
+  it('uses absolute value in both directions', () => {
+    expect(reconcileLabelWithSize('trivia', -3082, SUB_MIN, TRIV_MAX)).toBe('substantive');
+    expect(reconcileLabelWithSize('substantive', -25, SUB_MIN, TRIV_MAX)).toBe('trivia');
+  });
+
+  it('leaves the middle band to the model (both magnitudes plausible)', () => {
+    expect(reconcileLabelWithSize('trivia', 500, SUB_MIN, TRIV_MAX)).toBe('trivia');
+    expect(reconcileLabelWithSize('substantive', 500, SUB_MIN, TRIV_MAX)).toBe('substantive');
+  });
+
+  it('never touches the quality axis (vandalism / unclear) at any size', () => {
+    expect(reconcileLabelWithSize('vandalism', 5, SUB_MIN, TRIV_MAX)).toBe('vandalism');
+    expect(reconcileLabelWithSize('vandalism', 9999, SUB_MIN, TRIV_MAX)).toBe('vandalism');
+    expect(reconcileLabelWithSize('unclear', 5, SUB_MIN, TRIV_MAX)).toBe('unclear');
+    expect(reconcileLabelWithSize('unclear', 9999, SUB_MIN, TRIV_MAX)).toBe('unclear');
+  });
+
+  it('leaves the label unchanged when the delta is unknown (null)', () => {
+    expect(reconcileLabelWithSize('substantive', null, SUB_MIN, TRIV_MAX)).toBe('substantive');
+    expect(reconcileLabelWithSize('trivia', null, SUB_MIN, TRIV_MAX)).toBe('trivia');
   });
 });
