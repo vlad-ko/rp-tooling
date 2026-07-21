@@ -42,6 +42,14 @@ describe('isRevert', () => {
     ).toBe(true);
   });
 
+  it('detects the live "Restored revision" form (rc_id 2046560718)', () => {
+    expect(
+      isRevert(
+        'Restored revision 1363988987 by [[Special:Contributions/~2026-39713-82|~2026-39713-82]] ([[User talk:~2026-39713-82|talk]]): Reversion of Vandalism and unexplained Removal of Sourced material',
+      ),
+    ).toBe(true);
+  });
+
   it("detects 'rv' shorthand", () => {
     expect(isRevert('rv vandalism')).toBe(true);
   });
@@ -87,6 +95,7 @@ describe('isRevert', () => {
     'Undid revision [[Special:Diff/1|1]] by [[Special:Contributions/X|X]]',
     'Reverted edits by [[Special:Contributions/X|X]] to last version by Alice',
     'Reverted 2 edits by [[Special:Contributions/X|X]] (HG) (3.4.14)',
+    'Restored revision 123 by [[Special:Contributions/X|X]]: Reversion of Vandalism',
     'rv spammy external links',
     'rvv',
     'expanded the career section', // non-revert
