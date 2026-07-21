@@ -1,10 +1,14 @@
 import { createServer, type ServerResponse } from "node:http";
 import { readFileSync } from "node:fs";
+import { argv } from "node:process";
+import { fileURLToPath } from "node:url";
 import { config } from "./config.js";
 import { isLabel, recentEdits, stats, type Label } from "./db.js";
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
+const DEFAULT_OFFSET = 0;
+const MAX_SEARCH_LENGTH = 200;
 
 const indexHtml = readFileSync(
   new URL("../public/index.html", import.meta.url),
@@ -16,10 +20,28 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
 }
 
 /** Returns null when the value is not a plain positive integer. */
-function parseLimit(raw: string | null): number | null {
+export function parseLimit(raw: string | null): number | null {
   if (raw === null || raw === "") return DEFAULT_LIMIT;
   if (!/^\d+$/.test(raw)) return null;
   return Math.min(Math.max(Number(raw), 1), MAX_LIMIT);
+}
+
+/**
+ * Returns null when the value is not a plain non-negative integer. Empty/absent
+ * defaults to 0; "-1" and fractional values are rejected (null), never clamped.
+ */
+export function parseOffset(raw: string | null): number | null {
+  if (raw === null || raw === "") return DEFAULT_OFFSET;
+  if (!/^\d+$/.test(raw)) return null;
+  return Number(raw);
+}
+
+/** Trims and caps the title search; empty/whitespace-only ⇒ null (no filter). */
+export function parseSearch(raw: string | null): string | null {
+  if (raw === null) return null;
+  const trimmed = raw.trim();
+  if (trimmed === "") return null;
+  return trimmed.slice(0, MAX_SEARCH_LENGTH);
 }
 
 async function handleEdits(
@@ -44,7 +66,18 @@ async function handleEdits(
     return;
   }
 
-  sendJson(res, 200, { edits: await recentEdits(label, limit) });
+  const offset = parseOffset(params.get("offset"));
+  if (offset === null) {
+    sendJson(res, 400, {
+      error: "invalid offset; expected a non-negative integer",
+    });
+    return;
+  }
+
+  const search = parseSearch(params.get("q"));
+
+  const { rows, hasMore } = await recentEdits({ label, search, limit, offset });
+  sendJson(res, 200, { edits: rows, limit, offset, hasMore });
 }
 
 const server = createServer((req, res) => {
@@ -75,6 +108,10 @@ const server = createServer((req, res) => {
   });
 });
 
-server.listen(config.port, () => {
-  console.log(`web listening on :${config.port}`);
-});
+// Only bind a port when run as the entry point — importing this module (e.g.
+// from tests, to reach the pure parsers) must not start the HTTP server.
+if (argv[1] && fileURLToPath(import.meta.url) === argv[1]) {
+  server.listen(config.port, () => {
+    console.log(`web listening on :${config.port}`);
+  });
+}
