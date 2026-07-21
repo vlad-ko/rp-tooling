@@ -196,7 +196,8 @@ The service reads further knobs from its own environment with defaults in
 `docker-compose.yml` to override): `CONFIDENCE_THRESHOLD` (0.6),
 `HEURISTIC_TINY_DELTA` (5), `SUBSTANTIVE_MIN_BYTES` (100),
 `TRIVIA_MAX_BYTES` (2000), `OLLAMA_RETRIES` (5),
-`OLLAMA_STARTUP_TIMEOUT_MS` (180000), `DIFF_MAX_CHARS` (4000),
+`OLLAMA_STARTUP_TIMEOUT_MS` (180000), `OLLAMA_REQUEST_TIMEOUT_MS` (120000),
+`DIFF_MAX_CHARS` (4000),
 `COMPARE_TIMEOUT_MS` (5000), `MAX_ERROR_SNIPPET` (500).
 
 Troubleshooting: if port 8080 is already taken, set `WEB_PORT` (e.g.

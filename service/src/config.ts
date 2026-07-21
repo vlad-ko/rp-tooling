@@ -7,6 +7,7 @@ export interface Config {
   ollamaModel: string;
   ollamaRetries: number;
   ollamaStartupTimeoutMs: number;
+  ollamaRequestTimeoutMs: number;
   confidenceThreshold: number;
   diffMaxChars: number;
   heuristicTinyDelta: number;
@@ -43,6 +44,9 @@ export function loadConfig(env: Env = process.env): Readonly<Config> {
     ollamaModel: env['OLLAMA_MODEL'] ?? 'llama3.2:3b',
     ollamaRetries: numberOr(env['OLLAMA_RETRIES'], 5),
     ollamaStartupTimeoutMs: numberOr(env['OLLAMA_STARTUP_TIMEOUT_MS'], 180_000),
+    // Generous: CPU inference of a 4000-char enrichment prompt can take
+    // tens of seconds; too low would false-abort legitimate slow work.
+    ollamaRequestTimeoutMs: numberOr(env['OLLAMA_REQUEST_TIMEOUT_MS'], 120_000),
     confidenceThreshold: numberOr(env['CONFIDENCE_THRESHOLD'], 0.6),
     diffMaxChars: numberOr(env['DIFF_MAX_CHARS'], 4000),
     heuristicTinyDelta: numberOr(env['HEURISTIC_TINY_DELTA'], 5),
