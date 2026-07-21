@@ -112,12 +112,13 @@
   }
   td.num { font-variant-numeric: tabular-nums; }
   td.title {
-    max-width: 220px; white-space: normal; overflow-wrap: anywhere;
+    max-width: 280px; white-space: normal; overflow-wrap: anywhere;
   }
   td.reason {
     max-width: 280px; overflow: hidden; text-overflow: ellipsis;
     color: var(--secondary);
   }
+  td.editor { max-width: 110px; overflow: hidden; text-overflow: ellipsis; }
   td.time, td.pass, td.editor { color: var(--secondary); }
   .dot {
     display: inline-block; width: 8px; height: 8px; border-radius: 50%;
@@ -306,11 +307,12 @@
     if (!when || isNaN(when)) {
       timeTd.textContent = "—";
     } else {
-      // Date and time on separate lines to save horizontal space.
+      // Time over date on separate lines: the time changes every row, the
+      // date rarely does, so the more-variable value leads. Saves width too.
       timeTd.append(
-        document.createTextNode(when.toLocaleDateString()),
-        el("br"),
         document.createTextNode(when.toLocaleTimeString()),
+        el("br"),
+        document.createTextNode(when.toLocaleDateString()),
       );
     }
     tr.append(timeTd);
@@ -353,7 +355,9 @@
       textContent: delta == null ? "—" : (delta > 0 ? "+" + delta : String(delta)),
     }));
 
-    tr.append(el("td", { className: "editor", textContent: edit.editor ?? "—" }));
+    const editorTd = el("td", { className: "editor", textContent: edit.editor ?? "—" });
+    if (edit.editor) editorTd.title = edit.editor;
+    tr.append(editorTd);
 
     return tr;
   }
