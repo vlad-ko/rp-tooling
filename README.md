@@ -172,13 +172,15 @@ curl localhost:8080/api/stats
 cd service && npm install && npm test
 ```
 
-96 tests, all pure-function — no Docker, no broker, no network required. They
-cover dirty-model-output parsing, label normalization, the confidence
-boundary (0.59 / 0.6 / 0.61), the pipeline state machine driven with fakes,
-and the crash-exit wiring.
+160 tests, all pure-function — no Docker, no broker, no network required. They
+cover dirty-model-output parsing, label normalization, the confidence boundary
+(0.59 / 0.6 / 0.61), the byte-magnitude reconciliation, the revert/vandalism
+enrichment triggers, direction-aware diff extraction, the pipeline state
+machine driven with fakes, and the crash-exit wiring.
 
-The Connect mappings have their own unit tests (framing drops, policy drops,
-dead-letter routing, the projection), run via the Connect image:
+The Connect mappings (8 tests: framing drops, policy drops, dead-letter
+routing, the projection) run via the Connect image, and the web API's param
+parsers have their own suite (`cd web && npm test`, 7 tests):
 
 ```sh
 docker run --rm -v $PWD/connect:/connect docker.redpanda.com/redpandadata/connect:latest test /connect/pipeline_test.yaml
