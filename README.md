@@ -75,9 +75,14 @@ Every consumed edit becomes exactly one row in `edits` with a label from the
 closed enum `vandalism | substantive | trivia | unclear`. Rows are never
 dropped and bad data never crashes the pipeline.
 
-- A **heuristic gate** (no LLM call) short-circuits the obvious: bot-flagged
-  edits and minor edits with a tiny byte delta (≤ 5 bytes) land as `trivia`
-  with `pass = 'heuristic'`.
+- A **heuristic gate** (no LLM call) can send an edit straight to `trivia`
+  with `pass = 'heuristic'`: bot-flagged edits, or minor edits with a tiny
+  byte delta (≤ `HEURISTIC_TINY_DELTA`, 5). This is **defense-in-depth**, not
+  the common path — the Connect filter already drops bots and anything with
+  `|delta| < FILTER_MIN_DELTA` (25), so under the default config almost
+  nothing reaches this gate. It exists so the service never trusts its
+  upstream: a topic replay, a relaxed filter, or another producer could
+  deliver an edit the filter would otherwise have caught.
 - Everything else goes to Ollama. **Strict JSON extraction** digs the verdict
   out of dirty model output — markdown fences, prose wrapping, truncated
   JSON — via a balanced-brace scan, not a naive `JSON.parse`.
