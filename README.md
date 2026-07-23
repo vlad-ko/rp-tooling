@@ -250,5 +250,3 @@ Troubleshooting: if port 8080 is already taken, set `WEB_PORT` (e.g.
 - TypeScript over Python: types are very helpful for schema structures and data shapes; otherwise I'd probably need external libs.
 
 
-<!-- HUMAN-WRITTEN: intentionally left for the author. -->
-_To be written._
