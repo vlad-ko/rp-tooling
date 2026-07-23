@@ -218,13 +218,37 @@ The service reads further knobs from its own environment with defaults in
 Troubleshooting: if port 8080 is already taken, set `WEB_PORT` (e.g.
 `WEB_PORT=8081 docker compose up -d`) and browse to that port instead.
 
-## Tradeoffs
+## Sections below weren't touched by AI. Human written.
 
-<!-- HUMAN-WRITTEN: intentionally left for the author. Two pairs, one paragraph each:
-     what was chosen, the alternative, when the decision would flip. -->
-_To be written._
+## Surprises + why it breaks in prod.
 
-## Surprises & where this breaks in production
+- Building a moderation system relying purely on byte delta and user comments does not yield accurate results. The models are wildly inaccurate using metadata alone. Some data from my notes: ground-truthed against Wikipedia's own revert tags, vandalism precision was 46% and recall just 4% — of 135 community-reverted bad edits, the system caught 6.
+- With the focus on the vandalism label, as it is the most damaging, I've added an external call to enrich the prompt with the actual edit data (i.e. if label is vandalism always reach out to the diff API). While the labeling was improved somewhat, I would not trust the system to auto-moderate data in production.
+- The model struggled with reverts, couldn't figure out that suspicious Facebook links and an affiliate-link in a Rolex Milgauss article were actual examples of vandalism. The previous flaw was that the revert (i.e. removal of the malicious content) was actually a positive, rather than vandalism.
+- The model was confidently wrong more often than not.
+- Enriching the prompts when confidence was below 0.6 seemed like a sound idea to improve the verdicts, but in reality it didn't pan out. Even with additional context the model got a lot of things wrong.
+- The next thought was to consider using a more powerful model. I started with llama 3B and upgraded to qwen 2, 7B ... to my surprise that made pretty much no difference. Either model was confidently wrong most of the time.
+- The decision was made to treat "trivia" and "substantive" on the edit size at first, so a meaningful edit less than 100 bytes would still be classified as trivia and a pointless edit of 2,000 bytes or more was classified as substantive, signaling the size rather than merit.
+- Tweaking prompts and improving logic such as "not" treating reverts as vandalism or vice versa did not yield the desired results. It is a useful magnitude sorter, but a weak judge of the substance.
+
+## Why it breaks in production.
+
+- Based on the surprises above, the biggest "break" is the fact that the system is unreliable without a human in the middle. It is a good system for categorizing generics, but it is nowhere near production quality for actual moderation with accuracy.
+- Beyond that we have a single docker container with no failover or proper orchestration. Single instance of each service, no replication/failover, one Redpanda node, one Postgres, one service consumer. "Massive amounts of data" would be handled by partitions + more consumer instances, which the single-node setup can't do.
+- SSE disconnect / reconnect gaps are lost forever; we don't track something like the "last event ID" to correctly restore the stream.
+- No human-in-the-middle, which is how true moderation works per the brief research that I've done.
+- Lack of a training pipeline, which would help the system become smarter over time, goes beyond the specifics of this assignment. Without it the system has a reliability ceiling.
+- Inability to call out to an external, powerful model like Opus, which can meaningfully judge things like affiliate links, hinders the production system. Although this was part of the assignment criteria, in production I'd probably add a secondary pipeline to leverage an LLM which was much more accurate when I actually asked it to look at specific examples, when looking at the incorrect labeling during my manual testing.
+
+## Tradeoffs - this section is based on the discoveries from the items above
+
+- I decided to classify on metadata first; fetch the real diff only when confidence < 0.6, revert, or vandalism. Why not always reach out to the diff API? Calling out to an external API has the potential to get rate limited. I tried to find a happy middle, where I felt the external API call truly made sense. Given the fact that targeted enrichment only helped in some cases, calling out to the external API on every record didn't make sense.
+- Size-based labeling, i.e. trivia vs substantive, because model judgement and confidence here weren't yielding the desired results. A hard gate, which can be tweaked in the settings, seemed like a more reliable approach.
+- Smaller model over the larger one — llama3.2:3b vs qwen2.5:7b — no noticeable improvement; OOM on relatively solid hardware, had to shut down other services just to be able to run Qwen 2. The larger model was not worth it.
+- Send structural anomalies to the DLQ, rather than simply dropping them. The DLQ can potentially be re-tried, inspected for errors, or used as training data.
+- Firehose has no content. While storing it in Postgres could be valuable for further introspection, it went beyond the requirements of the assignment and would require an additional fetch from the diff API. Kept things true to the original schema.
+- TypeScript over Python: types are very helpful for schema structures and data shapes; otherwise I'd probably need external libs.
+
 
 <!-- HUMAN-WRITTEN: intentionally left for the author. -->
 _To be written._
